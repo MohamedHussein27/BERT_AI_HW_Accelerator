@@ -16,7 +16,6 @@ module PE #(
     input logic [(DATAWIDTH) - 1:0] in_A,
     input logic [(DATAWIDTH*2)-1:0] in_B,
 
-    output logic [(DATAWIDTH) - 1:0] out_R,
     output logic [(DATAWIDTH*2)-1:0] out_D
 );
 
@@ -24,7 +23,6 @@ module PE #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            out_R  <= 0;
             out_D  <= 0;
             weight <= 0;
         end else begin
@@ -32,7 +30,6 @@ module PE #(
             if (wt_en) weight <= wt;
 
             out_D <= (in_A * weight) + in_B;  
-            out_R <= in_A;  // pass data to the right
         end
     end
 endmodule
