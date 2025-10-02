@@ -20,9 +20,7 @@ module systolic #(
     generate
         for (l = 0; l < N_SIZE; l = l + 1) begin
             for (p = 0; p < N_SIZE; p = p + 1) begin
-                always_comb begin
-                    weight_wire[l][p] = wt_flat[l*N_SIZE + p];
-                end
+                assign weight_wire[l][p] = wt_flat[l*N_SIZE + p];
             end
         end
     endgenerate
@@ -31,10 +29,9 @@ module systolic #(
     genvar i;
     generate
         for (i = 0; i < N_SIZE; i = i + 1) begin
-            always_comb begin
-                row_wire[i] = matrix_A[i];
-                col_wire[0][i] = matrix_B[i];
-            end
+            assign row_wire[i] = matrix_A[i];
+            assign col_wire[0][i] = matrix_B[i];
+
         end
     endgenerate
     // instantiation of PE's
@@ -62,9 +59,7 @@ module systolic #(
     genvar k;
     generate
         for (k = 0; k < N_SIZE; k = k + 1) begin
-            always_comb begin
-                matrix_C[k] = col_wire[N_SIZE][k];
-            end
+            assign matrix_C[k] = col_wire[N_SIZE][k];
         end
     endgenerate
 endmodule

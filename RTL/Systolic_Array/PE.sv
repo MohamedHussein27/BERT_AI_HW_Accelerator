@@ -2,7 +2,7 @@
 // in_A left input, in_B up input
 //        in_B
 //          |
-// in_A --> PE --> out_R
+// in_A --> PE
 //          |
 //        out_D
 
