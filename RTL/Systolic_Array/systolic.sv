@@ -52,10 +52,7 @@ module systolic #(
         end
     endgenerate
 
-    // output raw should be stores in the buffer.
-    //TODO --> modify the intermidiate buffers to carry the an output of size 576*32 as every raw produce 64 trash value.
-    // i  can use this cycles to store the outtile in the format to be ready to be inputted next systolic operation.
-    // insert zero at the trash values.
+// a valid output is out after N cycles. and continue to (output for number_of_raws of the input tile) cycles
     genvar k;
     generate
         for (k = 0; k < N_SIZE; k = k + 1) begin
