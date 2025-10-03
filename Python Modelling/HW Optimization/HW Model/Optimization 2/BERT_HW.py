@@ -1,4 +1,4 @@
-# BERT_HW_Quantized_non_linear.py
+# BERT_HW_GCU_SCU.py
 """
 Trainable, hardware-aware BERT model that simulates the proposed FPGA architecture.
 
@@ -6,10 +6,12 @@ This version is updated to include:
 1.  Approximate LayerNorm using Newton-Raphson for SQRT.
 2.  Tiled dataflow simulation for the Systolic Array (32x32).
 3.  Per-channel weight quantization.
-4.  SCU (Softmax Compute Unit) based on the Swin Transformer FPGA paper.
-5.  GCU (GELU Compute Unit) based on the Swin Transformer FPGA paper.
-6.  Shared EU (Exponential Unit) and DU (Division Unit) for resource efficiency.
-7.  Quantization after SCU, GCU, and before Add&Norm.
+4.  SCU (Softmax Compute Unit) and GCU (GELU Compute Unit).
+5.  Shared EU (Exponential Unit) and DU (Division Unit).
+6.  Quantization after SCU, GCU.
+7.  The residual ADDITION operation is performed on quantized tensors.
+8.  Q and K tensors are quantized before the attention score multiplication.
+9.  The V tensor is quantized before the final attention multiplication.
 """
 import math
 from dataclasses import dataclass
@@ -135,7 +137,6 @@ class SCU(nn.Module):
         probabilities = self.du(exp_scores, sum_exp, add_one_to_denominator=False)
         # Final re-normalization for stability
         stable_probs = probabilities / (torch.sum(probabilities, dim=-1, keepdim=True) + 1e-9)
-        # Quantize the output of the SCU module
         return Quantize.apply(stable_probs)
 
 class GCU(nn.Module):
@@ -164,6 +165,7 @@ class Quantize(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, num_bits=8):
         qmax = 2**(num_bits - 1) - 1
+        if x.numel() == 0: return x
         scale = x.abs().max() / qmax if x.dim() > 2 else x.abs().max(dim=1, keepdim=True)[0] / qmax
         scale[scale == 0] = 1.0
         q = torch.clamp((x / scale).round(), -qmax, qmax)
@@ -259,17 +261,25 @@ class MultiHeadSelfAttention(nn.Module):
         TILE_SIZE = 32
         q_full, k_full, v_full = self.transpose_for_scores(self.q(hidden_states)), self.transpose_for_scores(self.k(hidden_states)), self.transpose_for_scores(self.v(hidden_states))
 
-        attn_scores = torch.zeros_like(q_full @ k_full.transpose(-1, -2))
+        attn_scores = torch.zeros((q_full.size(0), q_full.size(1), q_full.size(2), k_full.size(2)), device=q_full.device)
         for i in range(0, q_full.size(2), TILE_SIZE):
             for j in range(0, k_full.size(2), TILE_SIZE):
-                attn_scores[:, :, i:i+TILE_SIZE, j:j+TILE_SIZE] = torch.matmul(q_full[:, :, i:i+TILE_SIZE, :], k_full[:, :, j:j+TILE_SIZE, :].transpose(-1, -2)) * self.scale
+                # Quantize Q and K tiles before multiplication
+                q_tile_quantized = Quantize.apply(q_full[:, :, i:i+TILE_SIZE, :])
+                k_tile_quantized = Quantize.apply(k_full[:, :, j:j+TILE_SIZE, :])
+                
+                attn_scores[:, :, i:i+TILE_SIZE, j:j+TILE_SIZE] = torch.matmul(q_tile_quantized, k_tile_quantized.transpose(-1, -2)) * self.scale
         
         if attention_mask is not None: attn_scores = attn_scores + attention_mask
         attn_probs = self.attn_dropout(self.softmax(attn_scores))
         
+        # MODIFICATION: Quantize the V tensor before the final multiplication
+        v_full_quantized = Quantize.apply(v_full)
+        
         context = torch.zeros_like(v_full)
         for i in range(0, attn_probs.size(2), TILE_SIZE):
-            context[:, :, i:i+TILE_SIZE, :] = torch.matmul(attn_probs[:, :, i:i+TILE_SIZE, :], v_full)
+            probs_tile = attn_probs[:, :, i:i+TILE_SIZE, :] # attn_probs is already quantized from SCU output
+            context[:, :, i:i+TILE_SIZE, :] = torch.matmul(probs_tile, v_full_quantized)
 
         context = context.permute(0, 2, 1, 3).contiguous().view(hidden_states.size())
         return self.proj_dropout(self.out(context))
@@ -288,7 +298,6 @@ class FeedForward(nn.Module):
         for i in range(0, x.size(1), TILE_SIZE):
             out1[:, i:i+TILE_SIZE, :] = self.dense_1(x[:, i:i+TILE_SIZE, :])
         
-        # MODIFICATION: Quantize the output of the GCU module
         activated = Quantize.apply(self.activation(out1))
         
         out2 = torch.zeros_like(x)
@@ -305,14 +314,14 @@ class TransformerEncoderLayer(nn.Module):
         self.ffn_layer_norm = ApproximateLayerNorm(hidden_size, eps=1e-12)
 
     def forward(self, x, attention_mask=None):
-        # MODIFICATION: Quantize the input to the first Add&Norm layer
         attn_output = self.attention(x, attention_mask=attention_mask)
-        norm_input_1 = Quantize.apply(x + attn_output)
+        # Quantize each tensor BEFORE the addition
+        norm_input_1 = Quantize.apply(x) + Quantize.apply(attn_output)
         x = self.attn_layer_norm(norm_input_1)
         
-        # MODIFICATION: Quantize the input to the second Add&Norm layer
         ffn_output = self.ffn(x)
-        norm_input_2 = Quantize.apply(x + ffn_output)
+        # Quantize each tensor BEFORE the addition
+        norm_input_2 = Quantize.apply(x) + Quantize.apply(ffn_output)
         x = self.ffn_layer_norm(norm_input_2)
         
         return x
