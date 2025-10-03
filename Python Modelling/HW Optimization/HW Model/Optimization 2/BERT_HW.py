@@ -1,4 +1,4 @@
-# BERT_HW_Updated.py
+# BERT_HW_Quantized_non_linear.py
 """
 Trainable, hardware-aware BERT model that simulates the proposed FPGA architecture.
 
@@ -9,6 +9,7 @@ This version is updated to include:
 4.  SCU (Softmax Compute Unit) based on the Swin Transformer FPGA paper.
 5.  GCU (GELU Compute Unit) based on the Swin Transformer FPGA paper.
 6.  Shared EU (Exponential Unit) and DU (Division Unit) for resource efficiency.
+7.  Quantization after SCU, GCU, and before Add&Norm.
 """
 import math
 from dataclasses import dataclass
@@ -133,7 +134,9 @@ class SCU(nn.Module):
         sum_exp = self.adder_tree(exp_scores)
         probabilities = self.du(exp_scores, sum_exp, add_one_to_denominator=False)
         # Final re-normalization for stability
-        return probabilities / (torch.sum(probabilities, dim=-1, keepdim=True) + 1e-9)
+        stable_probs = probabilities / (torch.sum(probabilities, dim=-1, keepdim=True) + 1e-9)
+        # Quantize the output of the SCU module
+        return Quantize.apply(stable_probs)
 
 class GCU(nn.Module):
     """
@@ -285,7 +288,8 @@ class FeedForward(nn.Module):
         for i in range(0, x.size(1), TILE_SIZE):
             out1[:, i:i+TILE_SIZE, :] = self.dense_1(x[:, i:i+TILE_SIZE, :])
         
-        activated = self.activation(out1)
+        # MODIFICATION: Quantize the output of the GCU module
+        activated = Quantize.apply(self.activation(out1))
         
         out2 = torch.zeros_like(x)
         for i in range(0, activated.size(1), TILE_SIZE):
@@ -301,8 +305,16 @@ class TransformerEncoderLayer(nn.Module):
         self.ffn_layer_norm = ApproximateLayerNorm(hidden_size, eps=1e-12)
 
     def forward(self, x, attention_mask=None):
-        x = self.attn_layer_norm(x + self.attention(x, attention_mask=attention_mask))
-        x = self.ffn_layer_norm(x + self.ffn(x))
+        # MODIFICATION: Quantize the input to the first Add&Norm layer
+        attn_output = self.attention(x, attention_mask=attention_mask)
+        norm_input_1 = Quantize.apply(x + attn_output)
+        x = self.attn_layer_norm(norm_input_1)
+        
+        # MODIFICATION: Quantize the input to the second Add&Norm layer
+        ffn_output = self.ffn(x)
+        norm_input_2 = Quantize.apply(x + ffn_output)
+        x = self.ffn_layer_norm(norm_input_2)
+        
         return x
 
 class TransformerEncoder(nn.Module):
