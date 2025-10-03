@@ -8,6 +8,7 @@ This version includes:
 3. Per-channel weight quantization.
 4. Fixed-point arithmetic simulation in approximation modules.
 5. PLA (SoftMax approximation)
+6. Quantization after Softmax, GELU, and before Add&Norm.
 """
 import math
 from dataclasses import dataclass
@@ -102,7 +103,11 @@ class PLASoftmax(nn.Module):
         shifted_scores = scores - max_scores
         shifted_scores_fx = to_fixed_point(shifted_scores, 32, 26)
         exps = self.pla_exp(shifted_scores_fx)
-        return exps / (exps.sum(dim=-1, keepdim=True) + 1e-9)
+        
+        softmax_output = exps / (exps.sum(dim=-1, keepdim=True) + 1e-9)
+        
+        # Quantize the output of the Softmax module
+        return Quantize.apply(softmax_output)
 
 # Newton Raphson for LayerNorm
 class ApproximateLayerNorm(nn.Module):
@@ -118,11 +123,9 @@ class ApproximateLayerNorm(nn.Module):
 
     def _sqrt_newton_raphson(self, S):
         """ Computes sqrt(S) using Newton-Raphson, adapted for PyTorch tensors. """
-        # Initial guess based on the provided code
         x = torch.where(S > 1.0, S * 0.5, torch.ones_like(S))
         for _ in range(self.nr_iterations):
-            # x_next = 0.5 * (x + S/x)
-            x = 0.5 * (x + S / (x + 1e-9)) # Add epsilon for stability
+            x = 0.5 * (x + S / (x + 1e-9))
         return x
 
     def forward(self, x):
@@ -130,7 +133,6 @@ class ApproximateLayerNorm(nn.Module):
         var = x.var(dim=-1, keepdim=True, unbiased=False)
         var_fx = to_fixed_point(var, 32, 26)
         
-        # Calculate sqrt(var) using the adapted N-R method
         std_approx = self._sqrt_newton_raphson(var_fx)
         
         x = (x - mean) / (std_approx + self.eps)
@@ -219,7 +221,8 @@ class FeedForward(nn.Module):
         for i in range(0, x.size(1), TILE_SIZE):
             out1[:, i:i+TILE_SIZE, :] = self.dense_1(x[:, i:i+TILE_SIZE, :])
         
-        x = gelu(out1)
+        # Quantize the output of the GELU activation module
+        x = Quantize.apply(gelu(out1))
         
         out2 = torch.zeros(x.size(0), x.size(1), self.dense_2.out_features, device=x.device)
         for i in range(0, x.size(1), TILE_SIZE):
@@ -235,8 +238,16 @@ class TransformerEncoderLayer(nn.Module):
         self.ffn_layer_norm = ApproximateLayerNorm(hidden_size, eps=1e-12)
 
     def forward(self, x, attention_mask=None):
-        x = self.attn_layer_norm(x + self.attention(x, attention_mask=attention_mask))
-        x = self.ffn_layer_norm(x + self.ffn(x))
+        # Quantize the input to the first Add&Norm layer
+        attn_output = self.attention(x, attention_mask=attention_mask)
+        norm_input_1 = Quantize.apply(x + attn_output)
+        x = self.attn_layer_norm(norm_input_1)
+        
+        # Quantize the input to the second Add&Norm layer
+        ffn_output = self.ffn(x)
+        norm_input_2 = Quantize.apply(x + ffn_output)
+        x = self.ffn_layer_norm(norm_input_2)
+        
         return x
 
 class TransformerEncoder(nn.Module):
