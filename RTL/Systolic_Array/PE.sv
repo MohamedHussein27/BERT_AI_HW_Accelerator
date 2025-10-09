@@ -1,22 +1,16 @@
-// wt --> input weight
-// in_A left input, in_B up input
-//        in_B
-//          |
-// in_A --> PE
-//          |
-//        out_D
-
 module PE #(
     parameter DATAWIDTH = 8
 )(
-    input logic clk,
-    input logic rst_n,
-    input logic wt_en,
-    input logic [(DATAWIDTH) - 1:0] wt,
-    input logic [(DATAWIDTH) - 1:0] in_A,
-    input logic [(DATAWIDTH*2)-1:0] in_B,
+    input  logic clk,
+    input  logic rst_n,
+    input  logic wt_en,
+    input  logic valid_in,
 
-    output logic [(DATAWIDTH*2)-1:0] out_D
+    input  logic [(DATAWIDTH) - 1:0] wt,
+    input  logic [(DATAWIDTH) - 1:0] in_A,
+    input  logic [(DATAWIDTH*3) - 1:0] in_B,
+
+    output logic [(DATAWIDTH*3) - 1:0] out_D
 );
 
     logic [(DATAWIDTH) - 1:0] weight;
@@ -27,9 +21,12 @@ module PE #(
             weight <= 0;
         end else begin
             // load weight into local reg
-            if (wt_en) weight <= wt;
+            if (wt_en) 
+                weight <= wt;
 
-            out_D <= (in_A * weight) + in_B;  
+            // only compute when valid
+            if (valid_in)
+                out_D <= (in_A * weight) + in_B;
         end
     end
 endmodule
