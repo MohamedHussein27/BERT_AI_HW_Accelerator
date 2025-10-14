@@ -73,7 +73,7 @@ module fetch_logic_gen #(
     // Combinational Logic
     always @(*) 
         begin
-            next_state = state;
+            next_state = current_state;
             bram_en    = 1'b0;
             fetch_done = 1'b0;
 
@@ -81,7 +81,7 @@ module fetch_logic_gen #(
             // the number of reads per tile, plus the intra-tile offset.
             bram_addr  = (addr_ptr * NUM_FETCHES_PER_TILE) + fetch_offset;
 
-            case (state)
+            case (current_state)
                 IDLE: begin
                     if (start_fetch) 
                         begin
