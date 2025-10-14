@@ -95,7 +95,7 @@ module fetch_logic #(
                 begin
                     fetch_offset <= 0;
                 end 
-            else if (state == FETCHING) 
+            else if (current_state == FETCHING) 
                 begin
                     fetch_offset <= fetch_offset + 1;
                 end
