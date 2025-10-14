@@ -1,4 +1,3 @@
-
 `timescale 1ns/1ps
 module tb_fetch_bram;
 
@@ -12,10 +11,10 @@ module tb_fetch_bram;
     wire [255:0] doutb;
     wire [10:0] addrb;
 
-    // Clock
+    // Clock generation
     initial begin
         clk = 0;
-        forever #5 clk = ~clk;
+        forever #5 clk = ~clk;  // 100 MHz clock
     end
 
     // DUT
@@ -35,6 +34,10 @@ module tb_fetch_bram;
         .addrb(addrb)
     );
 
+    // Local memory mirror to check correctness
+    reg [31:0] written_values [0:255];  // same size as number of writes
+    integer i;
+
     // Stimulus
     initial begin
         // Reset
@@ -48,33 +51,74 @@ module tb_fetch_bram;
         #50;
         rst_n = 1;
         ena = 1;
-
         // =====================
-        // 1️⃣ Write some values to BRAM
+        // 1️⃣ Write values to BRAM
         // =====================
         $display("Writing BRAM...");
-        repeat (4) begin
-            wea = 1;
-            dina = $random;
-            addra = addra + 1;
+        for (i = 0; i < 256; i = i + 1) begin
+            wea  = 1;
+            dina = i * 2 + 2;     // deterministic pattern
+            written_values[i] = dina;
             #10;
+            addra = addra + 1;
         end
         wea = 0;
         #50;
 
         // =====================
-        // 2️⃣ Start fetch logic to read
+        // 2️⃣ Start fetch logic (read)
         // =====================
         $display("Starting fetch...");
         start_fetch = 1;
-        #10 start_fetch = 0;
+        #10;
+        start_fetch = 0;
 
-        // Wait until done
+        // Wait for fetch completion
         wait(fetch_done);
         $display("Fetch done at time %0t", $time);
 
-        #1000;
-        $finish;
+        
+
+        #10000;
+        // =====================
+        // 3️⃣ Verification
+        // =====================
+        // Each doutb should equal the concatenation of 8 consecutive 32-bit writes:
+        // doutb = {w[7], w[6], w[5], w[4], w[3], w[2], w[1], w[0]}
+        //check_bram_output();
+        $stop;
     end
+
+    // =====================
+    // Verification task
+    // =====================
+    task check_bram_output;
+        reg [255:0] expected;
+        integer group, j;
+        begin
+            for (group = 0; group < 32; group = group + 1) begin
+                expected = {written_values[group*8 + 7],
+                            written_values[group*8 + 6],
+                            written_values[group*8 + 5],
+                            written_values[group*8 + 4],
+                            written_values[group*8 + 3],
+                            written_values[group*8 + 2],
+                            written_values[group*8 + 1],
+                            written_values[group*8 + 0]};
+
+                // Wait for BRAM address to match this group (simulate sequential read)
+                wait(addrb == group);
+                @(posedge clk);
+
+                if (doutb === expected)
+                    $display("Correct BRAM output for group %0d (addr=%0d)", group, addrb);
+                else begin
+                    $display("MISMATCH at group %0d (addr=%0d)", group, addrb);
+                    $display("   Expected: %h", expected);
+                    $display("   Got     : %h", doutb);
+                end
+            end
+        end
+    endtask
 
 endmodule
