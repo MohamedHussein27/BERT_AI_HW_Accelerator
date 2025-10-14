@@ -53,7 +53,7 @@ module fetch_logic_gen #(
                         addr_ptr <= 0;
                     end
                 // Increment the pointer AFTER a fetch completes
-                else if (state == DONE) 
+                else if (current_state == DONE) 
                     begin
                         addr_ptr <= addr_ptr + 1;
                     end
@@ -63,7 +63,7 @@ module fetch_logic_gen #(
                     begin
                         fetch_offset <= 0;
                     end 
-                else if (state == FETCHING) 
+                else if (current_state == FETCHING) 
                     begin
                         fetch_offset <= fetch_offset + 1;
                     end
