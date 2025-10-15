@@ -40,7 +40,7 @@ module write_bram_top (
     write_logic_gen #(
         .NUM_WRITES_PER_TILE(16),
         .ADDR_WIDTH(16),
-        .ADDR_STRIDE(23)
+        .ADDR_STRIDE(24)
     ) u_write_logic (
         .clk(clk),
         .rst_n(rst_n),

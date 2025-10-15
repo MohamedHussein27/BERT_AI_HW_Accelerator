@@ -1,7 +1,8 @@
 module write_logic_gen #(
     parameter NUM_WRITES_PER_TILE = 16,
     parameter ADDR_WIDTH          = 16,
-    parameter ADDR_STRIDE         = 24   //  address step size (incerement by 24 places to accomodate the outputs ordering ftom the SA)
+    parameter ADDR_STRIDE         = 24,   //  address step size (incerement by 24 places to accomodate the outputs ordering ftom the SA)
+    parameter MAX_DEPTH           = 36864 // max depth of the BRAM
 )(
     // System Signals
     input  wire                      clk,
@@ -34,6 +35,7 @@ module write_logic_gen #(
     reg [8:0] addr_ptr;  // tile index
     localparam COUNTER_WIDTH = $clog2(NUM_WRITES_PER_TILE);
     reg [COUNTER_WIDTH-1:0] write_offset;
+    reg flag;
 
     // =====================
     // Sequential Logic
@@ -47,13 +49,14 @@ module write_logic_gen #(
             current_state <= next_state;
 
             // Reset address pointer if requested
-            if (reset_addr_counter)
+            if (next_state == DONE)
                 addr_ptr <= 0;
-            else if (current_state == DONE)
+            /*else if (next_state == DONE)*/
+            else if (flag)
                 addr_ptr <= addr_ptr + 1;
 
             // Counter logic
-            if (next_state == IDLE)
+            if (/*next_state == DONE*/ flag)
                 write_offset <= 0;
             else if (current_state == WRITING)
                 write_offset <= write_offset + 1;
@@ -67,11 +70,11 @@ module write_logic_gen #(
         next_state = current_state;
         bram_we    = 1'b0;
         write_done = 1'b0;
+        flag       = 1'b0;
 
         // Each tile starts at addr_ptr * (NUM_WRITES_PER_TILE * ADDR_STRIDE)
         // Each write within the tile increases by ADDR_STRIDE
-        bram_addr  = (addr_ptr * NUM_WRITES_PER_TILE * ADDR_STRIDE)
-                   + (write_offset * ADDR_STRIDE);
+        bram_addr  = addr_ptr + (write_offset * ADDR_STRIDE);
 
         case (current_state)
             IDLE: begin
@@ -81,13 +84,26 @@ module write_logic_gen #(
 
             WRITING: begin
                 bram_we = 1'b1;
-                if (write_offset == NUM_WRITES_PER_TILE - 1)
-                    next_state = DONE;
+                if (write_offset == NUM_WRITES_PER_TILE - 1) begin
+                    //next_state = DONE;
+                    if (bram_addr != MAX_DEPTH-1) begin
+                        next_state = WRITING;
+                        flag = 1;
+                    end
+                    else 
+                        next_state = DONE;
+                end
+                else 
+                    next_state = WRITING;
             end
 
             DONE: begin
                 write_done = 1'b1;
                 next_state = IDLE;
+                /*if (bram_addr == 384)
+                    next_state = IDLE;
+                else 
+                    next_state = WRITING;*/
             end
 
             default: next_state = IDLE;
@@ -95,3 +111,4 @@ module write_logic_gen #(
     end
 
 endmodule
+

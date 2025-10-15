@@ -56,41 +56,42 @@ module tb_write_bram;
         sa_out_data = 0;
         read_en = 0;
         read_addr = 0;
-        #50;
+        @(negedge clk);
         rst_n = 1;
-
+        start_write = 1;
         // =====================
-        // 1️⃣ Simulate SA writing 16 tiles (NUM_WRITES_PER_TILE)
+        // 1�?⃣ Simulate SA writing 16 tiles (NUM_WRITES_PER_TILE)
         // =====================
         $display("\n--- Writing data to BRAM via write logic ---");
-        for (i = 0; i < 16; i = i + 1) begin
+        
+        for (i = 0; i < 36864; i = i + 1) begin
             // Create distinct 256-bit data pattern for each write
-            sa_out_data = {16{(i+1)}}; // repeating byte pattern for visibility
+            sa_out_data = i + 2; // repeating byte pattern for visibility
 
             // Save expected data at the corresponding BRAM address
             expected_data[i] = sa_out_data;
-
-            // Start writing this tile
-            start_write = 1;
-            #10 start_write = 0;
-
-            // Wait for done signal
-            wait(write_done);
-            @(posedge clk);
-            $display("✅ Write done for tile %0d, address=%0d, data=%h", i, current_addr, sa_out_data);
+            
+            @(negedge clk);
+            if(i==0) start_write = 0;
         end
+        
+        //wait(write_done);
+        $display("✅ Write done for tile %0d, address=%0d, data=%h", i, current_addr, sa_out_data);
+        // Start writing this tile
+        
+        
 
         #100;
 
         // =====================
-        // 2️⃣ Read back & verify written data
+        // 2�?⃣ Read back & verify written data
         // =====================
         $display("\n--- Reading back from BRAM and verifying ---");
         read_en = 1;
 
-        for (i = 0; i < 16; i = i + 1) begin
+        for (i = 0; i < 384; i = i + 1) begin
             // Each write increments by stride=23
-            read_addr = i * 23;
+            read_addr = i * 24;
 
             @(posedge clk);
             #2; // allow BRAM output to settle
@@ -98,7 +99,7 @@ module tb_write_bram;
             if (doutb === expected_data[i])
                 $display("✅ Readback OK at addr %0d : %h", read_addr, doutb);
             else begin
-                $display("❌ MISMATCH at addr %0d", read_addr);
+                $display("�?� MISMATCH at addr %0d", read_addr);
                 $display("   Expected: %h", expected_data[i]);
                 $display("   Got     : %h", doutb);
             end
