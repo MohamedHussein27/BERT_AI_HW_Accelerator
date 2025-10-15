@@ -1,6 +1,7 @@
 module write_logic_gen #(
-    parameter NUM_WRITES_PER_TILE = 2,
-    parameter ADDR_WIDTH          = 11
+    parameter NUM_WRITES_PER_TILE = 16,
+    parameter ADDR_WIDTH          = 16,
+    parameter ADDR_STRIDE         = 24   //  address step size (incerement by 24 places to accomodate the outputs ordering ftom the SA)
 )(
     // System Signals
     input  wire                      clk,
@@ -18,21 +19,25 @@ module write_logic_gen #(
     output reg                       write_done           // Pulse high for one cycle when done
 );
 
+    // =====================
     // State Machine Definition
+    // =====================
     localparam [1:0] IDLE     = 2'b00;
     localparam [1:0] WRITING  = 2'b01;
     localparam [1:0] DONE     = 2'b10;
 
     reg [1:0] current_state, next_state;
 
-    // Internal Address Pointer (Tile index)
-    reg [8:0] addr_ptr;
-
-    // Internal Counter for writes within a tile
+    // =====================
+    // Internal Registers
+    // =====================
+    reg [8:0] addr_ptr;  // tile index
     localparam COUNTER_WIDTH = $clog2(NUM_WRITES_PER_TILE);
     reg [COUNTER_WIDTH-1:0] write_offset;
 
+    // =====================
     // Sequential Logic
+    // =====================
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             current_state <= IDLE;
@@ -55,14 +60,18 @@ module write_logic_gen #(
         end
     end
 
+    // =====================
     // Combinational Logic
+    // =====================
     always @(*) begin
         next_state = current_state;
         bram_we    = 1'b0;
         write_done = 1'b0;
 
-        // Compute address
-        bram_addr  = (addr_ptr * NUM_WRITES_PER_TILE) + write_offset;
+        // Each tile starts at addr_ptr * (NUM_WRITES_PER_TILE * ADDR_STRIDE)
+        // Each write within the tile increases by ADDR_STRIDE
+        bram_addr  = (addr_ptr * NUM_WRITES_PER_TILE * ADDR_STRIDE)
+                   + (write_offset * ADDR_STRIDE);
 
         case (current_state)
             IDLE: begin
@@ -71,7 +80,7 @@ module write_logic_gen #(
             end
 
             WRITING: begin
-                bram_we = 1'b1; // Assert single write enable
+                bram_we = 1'b1;
                 if (write_offset == NUM_WRITES_PER_TILE - 1)
                     next_state = DONE;
             end

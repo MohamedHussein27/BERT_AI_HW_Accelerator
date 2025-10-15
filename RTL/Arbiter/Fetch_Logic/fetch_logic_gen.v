@@ -57,29 +57,24 @@ module write_logic_gen #(
     end
 
     // Combinational Logic
-<<<<<<< HEAD
-    always @(*) begin
-        next_state = current_state;
-        bram_we    = 1'b0;
-        write_done = 1'b0;
-=======
+
+
     always @(*) 
         begin
             next_state = current_state;
             bram_en    = 1'b0;
             fetch_done = 1'b0;
->>>>>>> e8a2594aaf06af71de064d8cca0b80b6b658e4ff
+
 
         // Compute address
         bram_addr  = (addr_ptr * NUM_WRITES_PER_TILE) + write_offset;
 
-<<<<<<< HEAD
+
         case (current_state)
             IDLE: begin
                 if (start_write)
                     next_state = WRITING;
             end
-=======
             case (current_state)
                 IDLE: begin
                     if (start_fetch) 
@@ -103,7 +98,7 @@ module write_logic_gen #(
                 end
             endcase
         end
->>>>>>> e8a2594aaf06af71de064d8cca0b80b6b658e4ff
+
 
             WRITING: begin
                 bram_we = 1'b1; // Assert single write enable
