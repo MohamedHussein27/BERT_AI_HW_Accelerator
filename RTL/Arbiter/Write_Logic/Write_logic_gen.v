@@ -36,6 +36,7 @@ module write_logic_gen #(
     localparam COUNTER_WIDTH = $clog2(NUM_WRITES_PER_TILE);
     reg [COUNTER_WIDTH-1:0] write_offset;
     reg flag;
+    reg [15:0] counter = 0; 
 
     // =====================
     // Sequential Logic
@@ -74,7 +75,7 @@ module write_logic_gen #(
 
         // Each tile starts at addr_ptr * (NUM_WRITES_PER_TILE * ADDR_STRIDE)
         // Each write within the tile increases by ADDR_STRIDE
-        bram_addr  = addr_ptr + (write_offset * ADDR_STRIDE);
+        bram_addr  = addr_ptr + (write_offset * ADDR_STRIDE) + counter * 360;
 
         case (current_state)
             IDLE: begin
@@ -89,6 +90,8 @@ module write_logic_gen #(
                     if (bram_addr != MAX_DEPTH-1) begin
                         next_state = WRITING;
                         flag = 1;
+                        if (bram_addr == (384 * (counter + 1)) - 1)
+                        counter = counter + 1;
                     end
                     else 
                         next_state = DONE;
