@@ -252,8 +252,9 @@ if __name__ == "__main__":
     # Create test matrices
     print("Creating large test matrices (this may take a moment)...")
     np.random.seed(42)  # For reproducible results
-    A = np.random.randint(1, 5, (512, 3072))  # 512x768 matrix
-    B = np.random.randint(1, 5, (3072, 768))  # 768x768 matrix
+    ########################################### CHANGE THE MATRIX SIZES HERE ###########################################
+    A = np.random.randint(1, 5, (512, 768))  # 512x768 matrix
+    B = np.random.randint(1, 5, (768, 3072))  # 768x768 matrix
     
     print(f"Matrix A shape: {A.shape}")
     print(f"Matrix B shape: {B.shape}")
@@ -348,7 +349,8 @@ if __name__ == "__main__":
         print(f"  {diff_matrix[:5, :5]}")
     
     print(f"\nResult verification: {'✓ PASSED' if results_match else '✗ FAILED'}")
-    
+     
+     
     print(f"\n" + "="*80)
     print("PERFORMANCE SUMMARY:")
     print("="*80)
