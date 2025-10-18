@@ -1,4 +1,7 @@
-module fetch_bram_top (
+module fetch_bram_top #(
+    parameter NUM_FETCHES_PER_TILE = 32,
+    parameter ADDR_WIDTH = 11,
+    parameter FETCH_START_OFFSET   = 112   )  (
     // =====================
     // System signals
     // =====================
@@ -37,8 +40,9 @@ module fetch_bram_top (
     // Instantiate the Fetch Logic
     // =====================
     fetch_logic_gen #(
-        .NUM_FETCHES_PER_TILE(32),
-        .ADDR_WIDTH(11)
+        .NUM_FETCHES_PER_TILE(NUM_FETCHES_PER_TILE),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .FETCH_START_OFFSET(FETCH_START_OFFSET)
     ) u_fetch_logic (
         .clk(clk),
         .rst_n(rst_n),

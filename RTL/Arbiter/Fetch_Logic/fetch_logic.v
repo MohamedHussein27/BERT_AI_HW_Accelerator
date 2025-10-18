@@ -137,7 +137,8 @@
 endmodule*/
 module fetch_logic_gen #(
     parameter NUM_FETCHES_PER_TILE = 2,
-    parameter ADDR_WIDTH           = 11
+    parameter ADDR_WIDTH           = 11,
+    parameter FETCH_START_OFFSET   = 0 // default offset is zero
 ) (
     // System Signals
     input  wire                         clk,
@@ -216,7 +217,7 @@ module fetch_logic_gen #(
 
             // The address is the current pointer value (tile index) multiplied by
             // the number of reads per tile, plus the intra-tile offset.
-            bram_addr  = (addr_ptr * NUM_FETCHES_PER_TILE) + fetch_offset;
+            bram_addr  = (addr_ptr * NUM_FETCHES_PER_TILE) + fetch_offset + FETCH_START_OFFSET; // offset to account for the different address mapping in a single BRAM 
 
             case (current_state)
                 IDLE: begin

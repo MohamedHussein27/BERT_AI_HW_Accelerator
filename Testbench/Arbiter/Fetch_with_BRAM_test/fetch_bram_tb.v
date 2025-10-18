@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 module tb_fetch_bram;
-
+    
     reg clk, rst_n;
     reg start_fetch, reset_addr_counter;
     //reg [1:0] buffer_select;
@@ -19,7 +19,10 @@ module tb_fetch_bram;
     end
 
     // DUT
-    fetch_bram_top u_top (
+    fetch_bram_top #(
+        .NUM_FETCHES_PER_TILE(512),
+        .ADDR_WIDTH(11),
+        .FETCH_START_OFFSET(112) ) u_top (
         .clk(clk),
         .rst_n(rst_n),
         .start_fetch(start_fetch),
@@ -49,22 +52,26 @@ module tb_fetch_bram;
         ena = 0;
         //buffer_select = 2'b00;
         wea = 0;
-        addra = 0;
+        addra = 896;  // 112 * 8 (difference bet. the write depth and read depth) to test the I buffer
         dina = 0;
         #50;
         rst_n = 1;
         ena = 1;
+        reset_addr_counter = 1;
+        @(negedge clk);
+        @(negedge clk);
+        reset_addr_counter = 0;
         //buffer_select = 2'b00;
         // =====================
         // 1ï¸�âƒ£ Write values to BRAM
         // =====================
         $display("Writing BRAM...");
-        for (i = 0; i < 768; i = i + 1) begin
+        for (i = 0; i < 4096; i = i + 1) begin // 4096 = 512 * 8, as write ports differ from the read port 
             wea  = 1;
             dina = i * 2 + 2;     // deterministic pattern
             written_values[i] = dina;
             #10;
-            addra = addra + 1;
+            addra = addra + 1 ;   // to write in the right places to be read
         end
         wea = 0;
         #50;
@@ -96,7 +103,7 @@ module tb_fetch_bram;
         @(negedge clk);
         
         // fetch again
-        $display("Starting fetch...");
+        /*$display("Starting fetch...");
         start_fetch = 1;
         #10;
         start_fetch = 0;
@@ -105,7 +112,7 @@ module tb_fetch_bram;
         wait(fetch_done);
         $display("Fetch done at time %0t", $time);
         @(negedge clk);
-        @(negedge clk);
+        @(negedge clk);*/
         
 
         
