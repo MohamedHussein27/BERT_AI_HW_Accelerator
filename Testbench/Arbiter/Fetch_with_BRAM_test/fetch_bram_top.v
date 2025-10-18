@@ -1,89 +1,75 @@
+module fetch_bram_top (
+    // =====================
+    // System signals
+    // =====================
+    input  wire         clk,
+    input  wire         rst_n,
 
-module write_logic_gen #(
-    parameter NUM_WRITES_PER_TILE = 2,
-    parameter ADDR_WIDTH          = 11
-)(
-    // System Signals
-    input  wire                      clk,
-    input  wire                      rst_n,
+    // =====================
+    // Control signals for fetch logic
+    // =====================
+    input  wire         start_fetch,
+    input  wire         reset_addr_counter,
+    input  wire [1:0]   buffer_select, 
 
-    // Control Signals
-    input  wire                      start_write,         // Pulse to begin writing the next tile
-    input  wire                      reset_addr_counter,  // Pulse to reset the internal address pointer
+    // =====================
+    // Write-side (Port A) inputs to preload BRAM
+    // =====================
+    input  wire         wea,        // write enable (active high)
+    input  wire         ena,        // enable for port A
+    input  wire [13:0]  addra,      // write address
+    input  wire [31:0]  dina,       // write data
 
-    // BRAM Interface
-    output reg  [ADDR_WIDTH-1:0]     bram_addr,           // Address sent to the BRAM
-    output reg                       bram_we,             // Write enable for BRAM (acts as both en + we)
-
-    // Status Signal
-    output reg                       write_done           // Pulse high for one cycle when done
+    // =====================
+    // Outputs for monitoring
+    // =====================
+    output wire         fetch_done, // pulse when tile done
+    output wire [255:0] doutb,      // data read from BRAM (Port B)
+    output wire [10:0]  addrb       // address used for read (for debug)
 );
 
-    // State Machine Definition
-    localparam [1:0] IDLE     = 2'b00;
-    localparam [1:0] WRITING  = 2'b01;
-    localparam [1:0] DONE     = 2'b10;
+    // =====================
+    // Internal signals
+    // =====================
+    wire bram_en_b;
 
-    reg [1:0] current_state, next_state;
+    // =====================
+    // Instantiate the Fetch Logic
+    // =====================
+    fetch_logic_gen #(
+        .NUM_FETCHES_PER_TILE(32),
+        .ADDR_WIDTH(11)
+    ) u_fetch_logic (
+        .clk(clk),
+        .rst_n(rst_n),
 
-    // Internal Address Pointer (Tile index)
-    reg [8:0] addr_ptr;
+        .start_fetch(start_fetch),
+        .reset_addr_counter(reset_addr_counter),
 
-    // Internal Counter for writes within a tile
-    localparam COUNTER_WIDTH = $clog2(NUM_WRITES_PER_TILE);
-    reg [COUNTER_WIDTH-1:0] write_offset;
+        //.buffer_select(buffer_select),
 
-    // Sequential Logic
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            current_state <= IDLE;
-            write_offset  <= 0;
-            addr_ptr      <= 0;
-        end else begin
-            current_state <= next_state;
+        .bram_addr(addrb),
+        .bram_en(bram_en_b),
 
-            // Reset address pointer if requested
-            if (reset_addr_counter)
-                addr_ptr <= 0;
-            else if (current_state == DONE)
-                addr_ptr <= addr_ptr + 1;
+        .fetch_done(fetch_done)
+    );
 
-            // Counter logic
-            if (next_state == IDLE)
-                write_offset <= 0;
-            else if (current_state == WRITING)
-                write_offset <= write_offset + 1;
-        end
-    end
+    // =====================
+    // Instantiate the BRAM (Dual Port)
+    // =====================
+    W_B_I_Buffer w_b_i_bram (
+        // Port A (write)
+        .clka(clk),
+        .ena(ena),
+        .wea(wea),
+        .addra(addra),
+        .dina(dina),
 
-    // Combinational Logic
-    always @(*) begin
-        next_state = current_state;
-        bram_we    = 1'b0;
-        write_done = 1'b0;
-
-        // Compute address
-        bram_addr  = (addr_ptr * NUM_WRITES_PER_TILE) + write_offset;
-
-        case (current_state)
-            IDLE: begin
-                if (start_write)
-                    next_state = WRITING;
-            end
-
-            WRITING: begin
-                bram_we = 1'b1; // Assert single write enable
-                if (write_offset == NUM_WRITES_PER_TILE - 1)
-                    next_state = DONE;
-            end
-
-            DONE: begin
-                write_done = 1'b1;
-                next_state = IDLE;
-            end
-
-            default: next_state = IDLE;
-        endcase
-    end
+        // Port B (read)
+        .clkb(clk),
+        .enb(bram_en_b),
+        .addrb(addrb),
+        .doutb(doutb)
+    );
 
 endmodule

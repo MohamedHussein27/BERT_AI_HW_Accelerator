@@ -3,6 +3,7 @@ module tb_fetch_bram;
 
     reg clk, rst_n;
     reg start_fetch, reset_addr_counter;
+    //reg [1:0] buffer_select;
     reg ena, wea;
     reg [13:0] addra;
     reg [31:0] dina;
@@ -18,11 +19,12 @@ module tb_fetch_bram;
     end
 
     // DUT
-    fetch_bram_tb_top u_top (
+    fetch_bram_top u_top (
         .clk(clk),
         .rst_n(rst_n),
         .start_fetch(start_fetch),
         .reset_addr_counter(reset_addr_counter),
+        //.buffer_select(buffer_select),
 
         .wea(wea),
         .ena(ena),
@@ -45,17 +47,19 @@ module tb_fetch_bram;
         start_fetch = 0;
         reset_addr_counter = 0;
         ena = 0;
+        //buffer_select = 2'b00;
         wea = 0;
         addra = 0;
         dina = 0;
         #50;
         rst_n = 1;
         ena = 1;
+        //buffer_select = 2'b00;
         // =====================
-        // 1️⃣ Write values to BRAM
+        // 1ï¸�âƒ£ Write values to BRAM
         // =====================
         $display("Writing BRAM...");
-        for (i = 0; i < 256; i = i + 1) begin
+        for (i = 0; i < 768; i = i + 1) begin
             wea  = 1;
             dina = i * 2 + 2;     // deterministic pattern
             written_values[i] = dina;
@@ -66,7 +70,7 @@ module tb_fetch_bram;
         #50;
 
         // =====================
-        // 2️⃣ Start fetch logic (read)
+        // 2ï¸�âƒ£ Start fetch logic (read)
         // =====================
         $display("Starting fetch...");
         start_fetch = 1;
@@ -77,14 +81,39 @@ module tb_fetch_bram;
         wait(fetch_done);
         $display("Fetch done at time %0t", $time);
 
+        @(negedge clk);
+        @(negedge clk);
+        // fetch again
+        $display("Starting fetch...");
+        start_fetch = 1;
+        #10;
+        start_fetch = 0;
+
+        // Wait for fetch completion
+        wait(fetch_done);
+        $display("Fetch done at time %0t", $time);
+        @(negedge clk);
+        @(negedge clk);
+        
+        // fetch again
+        $display("Starting fetch...");
+        start_fetch = 1;
+        #10;
+        start_fetch = 0;
+
+        // Wait for fetch completion
+        wait(fetch_done);
+        $display("Fetch done at time %0t", $time);
+        @(negedge clk);
+        @(negedge clk);
         
 
-        #10000;
-        // =====================
-        // 3️⃣ Verification
-        // =====================
-        // Each doutb should equal the concatenation of 8 consecutive 32-bit writes:
-        // doutb = {w[7], w[6], w[5], w[4], w[3], w[2], w[1], w[0]}
+        
+         //=====================
+         //3ï¸�âƒ£ Verification
+        //=====================
+        //Each doutb should equal the concatenation of 8 consecutive 32-bit writes:
+        //doutb = {w[7], w[6], w[5], w[4], w[3], w[2], w[1], w[0]}
         //check_bram_output();
         $stop;
     end
