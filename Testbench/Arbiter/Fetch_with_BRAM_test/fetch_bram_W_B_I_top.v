@@ -1,7 +1,8 @@
-module fetch_bram_top #(
+module fetch_bram_W_B_I_top #(
     parameter NUM_FETCHES_PER_TILE = 32,
     parameter ADDR_WIDTH = 11,
-    parameter FETCH_START_OFFSET   = 112   )  (
+    parameter FETCH_START_OFFSET   = 112,
+    parameter DATA_WIDTH           = 256   )  (
     // =====================
     // System signals
     // =====================
@@ -13,7 +14,6 @@ module fetch_bram_top #(
     // =====================
     input  wire         start_fetch,
     input  wire         reset_addr_counter,
-    input  wire [1:0]   buffer_select, 
 
     // =====================
     // Write-side (Port A) inputs to preload BRAM
@@ -27,8 +27,8 @@ module fetch_bram_top #(
     // Outputs for monitoring
     // =====================
     output wire         fetch_done, // pulse when tile done
-    output wire [255:0] doutb,      // data read from BRAM (Port B)
-    output wire [10:0]  addrb       // address used for read (for debug)
+    output wire [DATA_WIDTH-1:0] doutb,      // data read from BRAM (Port B)
+    output wire [ADDR_WIDTH-1:0]  addrb       // address used for read (for debug)
 );
 
     // =====================
@@ -42,15 +42,14 @@ module fetch_bram_top #(
     fetch_logic_gen #(
         .NUM_FETCHES_PER_TILE(NUM_FETCHES_PER_TILE),
         .ADDR_WIDTH(ADDR_WIDTH),
-        .FETCH_START_OFFSET(FETCH_START_OFFSET)
+        .FETCH_START_OFFSET(FETCH_START_OFFSET),
+        .DATA_WIDTH(DATA_WIDTH)
     ) u_fetch_logic (
         .clk(clk),
         .rst_n(rst_n),
 
         .start_fetch(start_fetch),
         .reset_addr_counter(reset_addr_counter),
-
-        //.buffer_select(buffer_select),
 
         .bram_addr(addrb),
         .bram_en(bram_en_b),
