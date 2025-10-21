@@ -1,7 +1,5 @@
 module fetch_logic_gen #(
-    parameter NUM_FETCHES_PER_TILE = 2,
     parameter ADDR_WIDTH           = 16,
-    parameter FETCH_START_OFFSET   = 0,     // default offset is zero
     parameter ORIGINAL_COLUMNS     = 768,   // matrix columns before transpose
     parameter ORIGINAL_ROWS        = 512,   // matrix rows before transpose
     parameter NUM_BITS             = 8,     // quantized element
@@ -15,6 +13,8 @@ module fetch_logic_gen #(
     // Control Signals
     input  wire                         start_fetch,         // Pulse to begin fetching the next tile
     input  wire                         reset_addr_counter,  // Pulse to reset the internal address pointer
+    input  wire [2:0]                   Offset_Control,
+    input  wire                         Tiles_Control,
 
     // BRAM Interface
     output reg  [ADDR_WIDTH-1:0]        bram_addr,           // Address sent to the BRAM
@@ -31,7 +31,8 @@ module fetch_logic_gen #(
 
     reg [1:0] current_state, next_state;
     
-    //reg  [ADDR_WIDTH-1:0]        bram_addr_reg;
+    reg [14:0] FETCH_START_OFFSET;
+    wire [9:0] NUM_FETCHES_PER_TILE; // to choose how many fetchs we take in one tile
     
     integer i = 0, j = 0;
 
@@ -41,8 +42,7 @@ module fetch_logic_gen #(
     reg [8:0] addr_ptr;
 
     // Internal Counter for fetch offset within a tile
-    localparam COUNTER_WIDTH = $clog2(NUM_FETCHES_PER_TILE);
-    reg [COUNTER_WIDTH-1:0] fetch_offset;
+    reg [9:0] fetch_offset;
 
     // Sequential Logic
     always @(posedge clk or negedge rst_n)
@@ -71,7 +71,7 @@ module fetch_logic_gen #(
                                 end
                     end
                         
-                    else if (bram_addr == (2 * FETCH_START_OFFSET)- ORIGINAL_COLUMNS && FETCH_START_OFFSET == ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH))
+                    else if (bram_addr == ((2 * FETCH_START_OFFSET) + addr_ptr)- ORIGINAL_COLUMNS && next_state != DONE && FETCH_START_OFFSET == ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH))
                         begin
                             addr_ptr <= addr_ptr + 1;
                             i <= 0;
@@ -150,6 +150,20 @@ module fetch_logic_gen #(
                 end
             endcase
         end
-
+        // always block to choose from which address will we start
+        always @(*) 
+            begin
+                case (Offset_Control)
+                    3'b000 : FETCH_START_OFFSET = 'd0;                                                       // W_buffer
+                    3'b001 : FETCH_START_OFFSET = 64;                                                        // b_buffer
+                    3'b010 : FETCH_START_OFFSET = 112;                                                       // I_buffer
+                    3'b011 : FETCH_START_OFFSET = 'd0;                                                       // Q_buffer
+                    3'b100 : FETCH_START_OFFSET = ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH);    // K_buffer
+                    3'b101 : FETCH_START_OFFSET = 2*((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH);  // V_buffer
+                    default : FETCH_START_OFFSET = 'd0;
+                endcase
+            end
+        // if we are fetching weights, NUM_FETCHES_PER_TILE will be 32, if inputs NUM_FETCHES_PER_TILE will be 512
+        assign NUM_FETCHES_PER_TILE = Tiles_Control ? 10'd32 : 10'd512;
 endmodule
 
