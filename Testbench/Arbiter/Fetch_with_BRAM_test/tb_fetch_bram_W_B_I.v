@@ -3,13 +3,13 @@ module tb_fetch_bram_W_B_I;
 
     parameter NUM_FETCHES_PER_TILE = 32;
     parameter ADDR_WIDTH = 11;
-    parameter FETCH_START_OFFSET   = 112;
     parameter DATA_WIDTH           = 256;
     parameter CLK_PERIOD           = 10;
     
     reg clk, rst_n;
     reg start_fetch, reset_addr_counter;
     reg ena, wea;
+    reg [2:0] Offset_Control;
     reg [13:0] addra;
     reg [31:0] dina;
 
@@ -27,14 +27,14 @@ module tb_fetch_bram_W_B_I;
     fetch_bram_W_B_I_top #(
         .NUM_FETCHES_PER_TILE(NUM_FETCHES_PER_TILE),
         .ADDR_WIDTH(ADDR_WIDTH),
-        .FETCH_START_OFFSET(FETCH_START_OFFSET),
         .DATA_WIDTH(DATA_WIDTH)
     ) u_top (
         .clk(clk),
         .rst_n(rst_n),
         .start_fetch(start_fetch),
+        
         .reset_addr_counter(reset_addr_counter),
-        //.buffer_select(buffer_select),
+        .Offset_Control(Offset_Control),
 
         .wea(wea),
         .ena(ena),
@@ -56,8 +56,9 @@ module tb_fetch_bram_W_B_I;
         reset_addr_counter = 0;
         ena = 0;
         wea = 0;
-        addra = FETCH_START_OFFSET*8;  // 112 * 8 (difference bet. the write depth and read depth) to test the I buffer
+        addra = 0;
         dina = 0;
+        Offset_Control = 3'b000;
         repeat(5) @(negedge clk);
         rst_n = 1;
         ena = 1;

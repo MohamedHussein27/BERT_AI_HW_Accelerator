@@ -1,7 +1,6 @@
 module fetch_bram_Q_K_V_top #(
     parameter NUM_FETCHES_PER_TILE = 32,
     parameter ADDR_WIDTH = 16,
-    parameter FETCH_START_OFFSET   = 0,
     parameter ORIGINAL_COLUMNS     = 768,   // matrix columns before transpose
     parameter ORIGINAL_ROWS        = 512,   // matrix rows before transpose
     parameter NUM_BITS             = 8,     // quantized element
@@ -17,6 +16,7 @@ module fetch_bram_Q_K_V_top #(
     // =====================
     input  wire         start_fetch,
     input  wire         reset_addr_counter,
+    input  wire [2:0]   Offset_Control,
 
     // =====================
     // Write-side (Port A) inputs to preload BRAM
@@ -45,7 +45,6 @@ module fetch_bram_Q_K_V_top #(
     fetch_logic_gen #(
         .NUM_FETCHES_PER_TILE(NUM_FETCHES_PER_TILE),
         .ADDR_WIDTH(ADDR_WIDTH),
-        .FETCH_START_OFFSET(FETCH_START_OFFSET),
         .ORIGINAL_COLUMNS(ORIGINAL_COLUMNS),
         .ORIGINAL_ROWS(ORIGINAL_ROWS),
         .NUM_BITS(NUM_BITS),
@@ -56,6 +55,7 @@ module fetch_bram_Q_K_V_top #(
 
         .start_fetch(start_fetch),
         .reset_addr_counter(reset_addr_counter),
+        .Offset_Control(Offset_Control),
 
         .bram_addr(addrb),
         .bram_en(bram_en_b),
