@@ -1,8 +1,9 @@
 module fetch_bram_W_B_I_top #(
-    parameter NUM_FETCHES_PER_TILE = 32,
-    parameter ADDR_WIDTH = 11,
-    parameter FETCH_START_OFFSET   = 112,
-    parameter DATA_WIDTH           = 256   )  (
+    parameter ADDR_WIDTH = 16,
+    parameter ORIGINAL_COLUMNS     = 768,   // matrix columns before transpose
+    parameter ORIGINAL_ROWS        = 512,   // matrix rows before transpose
+    parameter NUM_BITS             = 8,     // quantized element
+    parameter DATA_WIDTH           = 256    )  (
     // =====================
     // System signals
     // =====================
@@ -14,6 +15,8 @@ module fetch_bram_W_B_I_top #(
     // =====================
     input  wire         start_fetch,
     input  wire         reset_addr_counter,
+    input  wire [2:0]   Buffer_Select,
+    input  wire         Tiles_Control,
 
     // =====================
     // Write-side (Port A) inputs to preload BRAM
@@ -40,22 +43,26 @@ module fetch_bram_W_B_I_top #(
     // Instantiate the Fetch Logic
     // =====================
     fetch_logic_gen #(
-        .NUM_FETCHES_PER_TILE(NUM_FETCHES_PER_TILE),
-        .ADDR_WIDTH(ADDR_WIDTH),
-        .FETCH_START_OFFSET(FETCH_START_OFFSET),
-        .DATA_WIDTH(DATA_WIDTH)
-    ) u_fetch_logic (
-        .clk(clk),
-        .rst_n(rst_n),
+            .ADDR_WIDTH(ADDR_WIDTH),
+            .ORIGINAL_COLUMNS(ORIGINAL_COLUMNS),
+            .ORIGINAL_ROWS(ORIGINAL_ROWS),
+            .NUM_BITS(NUM_BITS),
+            .DATA_WIDTH(DATA_WIDTH)
+        ) u_fetch_logic (
+            .clk(clk),
+            .rst_n(rst_n),
+    
+            .start_fetch(start_fetch),
+            .reset_addr_counter(reset_addr_counter),
+            .Buffer_Select(Buffer_Select),
+            .Tiles_Control(Tiles_Control),
+    
+            .bram_addr(addrb),
+            .bram_en(bram_en_b),
+    
+            .fetch_done(fetch_done)
+        );
 
-        .start_fetch(start_fetch),
-        .reset_addr_counter(reset_addr_counter),
-
-        .bram_addr(addrb),
-        .bram_en(bram_en_b),
-
-        .fetch_done(fetch_done)
-    );
 
     // =====================
     // Instantiate the BRAM (Dual Port)

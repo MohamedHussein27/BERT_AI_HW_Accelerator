@@ -1,24 +1,24 @@
 `timescale 1ns/1ps
 module tb_fetch_bram_Q_K_V;
 
-    parameter NUM_FETCHES_PER_TILE = 32;
-    parameter ADDR_WIDTH = 16;
+    parameter ADDR_WIDTH           = 16 ;
     parameter ORIGINAL_COLUMNS     = 768;   // matrix columns before transpose
     parameter ORIGINAL_ROWS        = 512;   // matrix rows before transpose
-    parameter NUM_BITS             = 8;     // quantized element
+    parameter NUM_BITS             = 8  ;   // quantized element
     parameter DATA_WIDTH           = 256;
-    parameter CLK_PERIOD           = 10;
+    parameter CLK_PERIOD           = 10 ;
     
     reg clk, rst_n;
     reg start_fetch, reset_addr_counter;
+    reg [2:0] Buffer_Select;
+    reg Tiles_Control;
     reg ena, wea;
-    reg [2:0] Offset_Control;
     reg [ADDR_WIDTH-1:0] addra;
     reg [DATA_WIDTH-1:0] dina;
 
     wire fetch_done;
-    wire [ADDR_WIDTH-1:0] addrb;
     wire [DATA_WIDTH-1:0] doutb;
+    wire [ADDR_WIDTH-1:0] addrb;
     
 
     // Clock generation
@@ -29,7 +29,6 @@ module tb_fetch_bram_Q_K_V;
 
     // DUT
     fetch_bram_Q_K_V_top #(
-        .NUM_FETCHES_PER_TILE(NUM_FETCHES_PER_TILE),
         .ADDR_WIDTH(ADDR_WIDTH),
         .ORIGINAL_COLUMNS(ORIGINAL_COLUMNS),
         .ORIGINAL_ROWS(ORIGINAL_ROWS),
@@ -41,7 +40,8 @@ module tb_fetch_bram_Q_K_V;
         
         .start_fetch(start_fetch),
         .reset_addr_counter(reset_addr_counter),
-        .Offset_Control(Offset_Control),
+        .Buffer_Select(Buffer_Select),
+        .Tiles_Control(Tiles_Control),
         
         .wea(wea),
         .ena(ena),
@@ -65,7 +65,8 @@ module tb_fetch_bram_Q_K_V;
         wea = 0;
         addra = 0;
         dina = 0;
-        Offset_Control = 3'b011;
+        Buffer_Select = 3'b100; // choosing the Q buffer
+        Tiles_Control = 1'b1;   // tiling 32
         repeat(5) @(negedge clk);
         rst_n = 1;
         ena = 1;
@@ -74,7 +75,7 @@ module tb_fetch_bram_Q_K_V;
         reset_addr_counter = 0;
         // =====================
         $display("Writing BRAM...");
-        for (i = 0; i < 12288; i = i + 1) begin // 4096 = 512 * 8, as write ports differ from the read port 
+        for (i = 0; i < 36864; i = i + 1) begin // filling BRAM ,,  4096 = 512 * 8, as write ports differ from the read port 
             wea  = 1;
             dina = i * 2 + 2;     // deterministic pattern
             @(negedge clk);
@@ -84,18 +85,23 @@ module tb_fetch_bram_Q_K_V;
         repeat(5) @(negedge clk);
         
         // =====================
-        $display("Starting fetch...");
+        $display("Starting fetch from K bufffer...");
         start_fetch = 1;
         @(negedge clk);
         start_fetch = 0;
 
         // Wait for fetch completion
         wait(fetch_done);
-        $display("Fetch done at time %0t", $time);
-
+        $display("Fetching K buffer done at time %0t", $time);
+        
+        
+        // changing the buffer and no. of tiles
+        Buffer_Select = 3'b011; // choosing the Q buffer
+        Tiles_Control = 1'b0;   // tiling 512
+        reset_addr_counter = 1; // to reset the counter
         repeat(2) @(negedge clk);
         // fetch again
-        $display("Starting fetch...");
+        $display("Starting fetch from Q buffer...");
         start_fetch = 1;
         @(negedge clk);
         start_fetch = 0;
