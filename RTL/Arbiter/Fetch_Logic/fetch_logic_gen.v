@@ -13,8 +13,8 @@ module fetch_logic_gen #(
     // Control Signals
     input  wire                         start_fetch,         // Pulse to begin fetching the next tile
     input  wire                         reset_addr_counter,  // Pulse to reset the internal address pointer
-    input  wire [2:0]                   Offset_Control,
-    input  wire                         Tiles_Control,
+    input  wire [2:0]                   Buffer_Select,       // control signal to choose which buffer we are reading from, you will find it at the end of the code
+    input  wire                         Tiles_Control,       // control signal to choose how many reads we will do, if weights so we will tile 32 times, if inputs we will tile 512 times
 
     // BRAM Interface
     output reg  [ADDR_WIDTH-1:0]        bram_addr,           // Address sent to the BRAM
@@ -56,7 +56,7 @@ module fetch_logic_gen #(
             else 
                 begin
                     current_state <= next_state;
-                    
+                    // equation for transposition, you can try iy on smaller matrices
                     if (FETCH_START_OFFSET == ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH) && current_state == FETCHING && bram_addr < (2 * FETCH_START_OFFSET)- ORIGINAL_COLUMNS)
                         begin                        
                             if (j == ORIGINAL_ROWS - 1)
@@ -70,7 +70,7 @@ module fetch_logic_gen #(
                                     j <= j + 1;
                                 end
                     end
-                        
+                    // this condition is to reset the i (row) counter and j (volumn) counter in case the tile is not finished and the rows have reached their max  
                     else if (bram_addr == ((2 * FETCH_START_OFFSET) + addr_ptr)- ORIGINAL_COLUMNS && next_state != DONE && FETCH_START_OFFSET == ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH))
                         begin
                             addr_ptr <= addr_ptr + 1;
@@ -106,8 +106,8 @@ module fetch_logic_gen #(
             end
         end
 
-    // Combinational Logic
-    always @(*) 
+        // Combinational Logic
+        always @(*) 
         begin
             next_state = current_state;
             bram_en    = 1'b0;
@@ -153,10 +153,10 @@ module fetch_logic_gen #(
         // always block to choose from which address will we start
         always @(*) 
             begin
-                case (Offset_Control)
+                case (Buffer_Select)
                     3'b000 : FETCH_START_OFFSET = 'd0;                                                       // W_buffer
                     3'b001 : FETCH_START_OFFSET = 64;                                                        // b_buffer
-                    3'b010 : FETCH_START_OFFSET = 112;                                                       // I_buffer
+                    3'b010 : FETCH_START_OFFSET = 112;                                                       // I_buffer as input buffer has a starting addtress of 112 in our BRAM 
                     3'b011 : FETCH_START_OFFSET = 'd0;                                                       // Q_buffer
                     3'b100 : FETCH_START_OFFSET = ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH);    // K_buffer
                     3'b101 : FETCH_START_OFFSET = 2*((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH);  // V_buffer
