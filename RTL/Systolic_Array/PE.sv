@@ -26,7 +26,7 @@ module PE #(
 
             // only compute when valid
             if (valid_in)
-                out_D <= (in_A * weight) + in_B;
+                (* use_dsp = "yes" *) out_D <= (in_A * weight) + in_B;
         end
     end
 endmodule

@@ -1,0 +1,198 @@
+ bert.embeddings.word_embeddings.weight: weight_scale=4.181581e-02, input_scale=1.0 (default)
+  bert.embeddings.position_embeddings.weight: weight_scale=4.181966e-02, input_scale=1.0 (default)
+  bert.embeddings.token_type_embeddings.weight: weight_scale=2.651260e-02, input_scale=1.0 (default)
+  bert.embeddings.LayerNorm.bias: FP32 (fallback)
+  bert.encoder.layers.0.attention.q.weight: weight_scale=2.832260e-04, input_scale=3.519799e-02
+  bert.encoder.layers.0.attention.q.bias: INT32, bias_scale=9.968985e-06
+  bert.encoder.layers.0.attention.k.weight: weight_scale=2.832256e-04, input_scale=3.519799e-02
+  bert.encoder.layers.0.attention.k.bias: INT32, bias_scale=9.968971e-06
+  bert.encoder.layers.0.attention.v.weight: weight_scale=4.135189e-04, input_scale=3.519799e-02
+  bert.encoder.layers.0.attention.v.bias: INT32, bias_scale=1.455503e-05
+  bert.encoder.layers.0.attention.out.weight: weight_scale=3.802003e-04, input_scale=7.601105e-03
+  bert.encoder.layers.0.attention.out.bias: INT32, bias_scale=2.889942e-06
+  bert.encoder.layers.0.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.0.ffn.dense_1.weight: weight_scale=5.043435e-04, input_scale=3.291728e-02
+  bert.encoder.layers.0.ffn.dense_1.bias: INT32, bias_scale=1.660162e-05
+  bert.encoder.layers.0.ffn.dense_2.weight: weight_scale=3.107885e-04, input_scale=1.735687e-02
+  bert.encoder.layers.0.ffn.dense_2.bias: INT32, bias_scale=5.394316e-06
+  bert.encoder.layers.0.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.1.attention.q.weight: weight_scale=2.832260e-04, input_scale=3.607632e-02
+  bert.encoder.layers.1.attention.q.bias: INT32, bias_scale=1.021775e-05
+  bert.encoder.layers.1.attention.k.weight: weight_scale=2.832256e-04, input_scale=3.607632e-02
+  bert.encoder.layers.1.attention.k.bias: INT32, bias_scale=1.021774e-05
+  bert.encoder.layers.1.attention.v.weight: weight_scale=3.697183e-04, input_scale=3.607632e-02
+  bert.encoder.layers.1.attention.v.bias: INT32, bias_scale=1.333808e-05
+  bert.encoder.layers.1.attention.out.weight: weight_scale=3.699003e-04, input_scale=7.090611e-03
+  bert.encoder.layers.1.attention.out.bias: INT32, bias_scale=2.622819e-06
+  bert.encoder.layers.1.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.1.ffn.dense_1.weight: weight_scale=4.781024e-04, input_scale=3.453636e-02
+  bert.encoder.layers.1.ffn.dense_1.bias: INT32, bias_scale=1.651191e-05
+  bert.encoder.layers.1.ffn.dense_2.weight: weight_scale=3.172742e-04, input_scale=1.740684e-02
+  bert.encoder.layers.1.ffn.dense_2.bias: INT32, bias_scale=5.522743e-06
+  bert.encoder.layers.1.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.2.attention.q.weight: weight_scale=2.832260e-04, input_scale=3.679794e-02
+  bert.encoder.layers.2.attention.q.bias: INT32, bias_scale=1.042213e-05
+  bert.encoder.layers.2.attention.k.weight: weight_scale=2.832260e-04, input_scale=3.679794e-02
+  bert.encoder.layers.2.attention.k.bias: INT32, bias_scale=1.042213e-05
+  bert.encoder.layers.2.attention.v.weight: weight_scale=3.636196e-04, input_scale=3.679794e-02
+  bert.encoder.layers.2.attention.v.bias: INT32, bias_scale=1.338045e-05
+  bert.encoder.layers.2.attention.out.weight: weight_scale=3.595748e-04, input_scale=8.245048e-03
+  bert.encoder.layers.2.attention.out.bias: INT32, bias_scale=2.964711e-06
+  bert.encoder.layers.2.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.2.ffn.dense_1.weight: weight_scale=4.412578e-04, input_scale=3.572244e-02
+  bert.encoder.layers.2.ffn.dense_1.bias: INT32, bias_scale=1.576280e-05
+  bert.encoder.layers.2.ffn.dense_2.weight: weight_scale=3.151432e-04, input_scale=1.931644e-02
+  bert.encoder.layers.2.ffn.dense_2.bias: INT32, bias_scale=6.087444e-06
+  bert.encoder.layers.2.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.3.attention.q.weight: weight_scale=2.832250e-04, input_scale=3.728846e-02
+  bert.encoder.layers.3.attention.q.bias: INT32, bias_scale=1.056102e-05
+  bert.encoder.layers.3.attention.k.weight: weight_scale=2.832259e-04, input_scale=3.728846e-02
+  bert.encoder.layers.3.attention.k.bias: INT32, bias_scale=1.056106e-05
+  bert.encoder.layers.3.attention.v.weight: weight_scale=3.676819e-04, input_scale=3.728846e-02
+  bert.encoder.layers.3.attention.v.bias: INT32, bias_scale=1.371029e-05
+  bert.encoder.layers.3.attention.out.weight: weight_scale=3.685238e-04, input_scale=8.987036e-03
+  bert.encoder.layers.3.attention.out.bias: INT32, bias_scale=3.311937e-06
+  bert.encoder.layers.3.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.3.ffn.dense_1.weight: weight_scale=4.403266e-04, input_scale=3.433684e-02
+  bert.encoder.layers.3.ffn.dense_1.bias: INT32, bias_scale=1.511943e-05
+  bert.encoder.layers.3.ffn.dense_2.weight: weight_scale=3.094619e-04, input_scale=1.803646e-02
+  bert.encoder.layers.3.ffn.dense_2.bias: INT32, bias_scale=5.581597e-06
+  bert.encoder.layers.3.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.4.attention.q.weight: weight_scale=2.832256e-04, input_scale=3.645198e-02
+  bert.encoder.layers.4.attention.q.bias: INT32, bias_scale=1.032413e-05
+  bert.encoder.layers.4.attention.k.weight: weight_scale=2.832255e-04, input_scale=3.645198e-02
+  bert.encoder.layers.4.attention.k.bias: INT32, bias_scale=1.032413e-05
+  bert.encoder.layers.4.attention.v.weight: weight_scale=3.686613e-04, input_scale=3.645198e-02
+  bert.encoder.layers.4.attention.v.bias: INT32, bias_scale=1.343844e-05
+  bert.encoder.layers.4.attention.out.weight: weight_scale=3.662939e-04, input_scale=1.015237e-02
+  bert.encoder.layers.4.attention.out.bias: INT32, bias_scale=3.718750e-06
+  bert.encoder.layers.4.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.4.ffn.dense_1.weight: weight_scale=4.332463e-04, input_scale=3.436609e-02
+  bert.encoder.layers.4.ffn.dense_1.bias: INT32, bias_scale=1.488898e-05
+  bert.encoder.layers.4.ffn.dense_2.weight: weight_scale=3.095927e-04, input_scale=1.928540e-02
+  bert.encoder.layers.4.ffn.dense_2.bias: INT32, bias_scale=5.970620e-06
+  bert.encoder.layers.4.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.5.attention.q.weight: weight_scale=2.832262e-04, input_scale=3.657131e-02
+  bert.encoder.layers.5.attention.q.bias: INT32, bias_scale=1.035795e-05
+  bert.encoder.layers.5.attention.k.weight: weight_scale=2.832257e-04, input_scale=3.657131e-02
+  bert.encoder.layers.5.attention.k.bias: INT32, bias_scale=1.035793e-05
+  bert.encoder.layers.5.attention.v.weight: weight_scale=3.563452e-04, input_scale=3.657131e-02
+  bert.encoder.layers.5.attention.v.bias: INT32, bias_scale=1.303201e-05
+  bert.encoder.layers.5.attention.out.weight: weight_scale=3.485074e-04, input_scale=1.048699e-02
+  bert.encoder.layers.5.attention.out.bias: INT32, bias_scale=3.654792e-06
+  bert.encoder.layers.5.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.5.ffn.dense_1.weight: weight_scale=4.238109e-04, input_scale=3.602750e-02
+  bert.encoder.layers.5.ffn.dense_1.bias: INT32, bias_scale=1.526884e-05
+  bert.encoder.layers.5.ffn.dense_2.weight: weight_scale=2.690555e-04, input_scale=2.149419e-02
+  bert.encoder.layers.5.ffn.dense_2.bias: INT32, bias_scale=5.783130e-06
+  bert.encoder.layers.5.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.6.attention.q.weight: weight_scale=2.832258e-04, input_scale=3.855337e-02
+  bert.encoder.layers.6.attention.q.bias: INT32, bias_scale=1.091931e-05
+  bert.encoder.layers.6.attention.k.weight: weight_scale=2.832260e-04, input_scale=3.855337e-02
+  bert.encoder.layers.6.attention.k.bias: INT32, bias_scale=1.091932e-05
+  bert.encoder.layers.6.attention.v.weight: weight_scale=3.493413e-04, input_scale=3.855337e-02
+  bert.encoder.layers.6.attention.v.bias: INT32, bias_scale=1.346828e-05
+  bert.encoder.layers.6.attention.out.weight: weight_scale=3.509545e-04, input_scale=1.144609e-02
+  bert.encoder.layers.6.attention.out.bias: INT32, bias_scale=4.017056e-06
+  bert.encoder.layers.6.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.6.ffn.dense_1.weight: weight_scale=4.084746e-04, input_scale=3.883529e-02
+  bert.encoder.layers.6.ffn.dense_1.bias: INT32, bias_scale=1.586323e-05
+  bert.encoder.layers.6.ffn.dense_2.weight: weight_scale=2.715988e-04, input_scale=3.212239e-02
+  bert.encoder.layers.6.ffn.dense_2.bias: INT32, bias_scale=8.724402e-06
+  bert.encoder.layers.6.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.7.attention.q.weight: weight_scale=2.832251e-04, input_scale=4.173842e-02
+  bert.encoder.layers.7.attention.q.bias: INT32, bias_scale=1.182137e-05
+  bert.encoder.layers.7.attention.k.weight: weight_scale=2.832257e-04, input_scale=4.173842e-02
+  bert.encoder.layers.7.attention.k.bias: INT32, bias_scale=1.182139e-05
+  bert.encoder.layers.7.attention.v.weight: weight_scale=3.386841e-04, input_scale=4.173842e-02
+  bert.encoder.layers.7.attention.v.bias: INT32, bias_scale=1.413614e-05
+  bert.encoder.layers.7.attention.out.weight: weight_scale=3.514834e-04, input_scale=1.049317e-02
+  bert.encoder.layers.7.attention.out.bias: INT32, bias_scale=3.688174e-06
+  bert.encoder.layers.7.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.7.ffn.dense_1.weight: weight_scale=4.154920e-04, input_scale=4.221771e-02
+  bert.encoder.layers.7.ffn.dense_1.bias: INT32, bias_scale=1.754112e-05
+  bert.encoder.layers.7.ffn.dense_2.weight: weight_scale=2.561781e-04, input_scale=3.117211e-02
+  bert.encoder.layers.7.ffn.dense_2.bias: INT32, bias_scale=7.985610e-06
+  bert.encoder.layers.7.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.8.attention.q.weight: weight_scale=2.832261e-04, input_scale=4.614844e-02
+  bert.encoder.layers.8.attention.q.bias: INT32, bias_scale=1.307044e-05
+  bert.encoder.layers.8.attention.k.weight: weight_scale=2.832258e-04, input_scale=4.614844e-02
+  bert.encoder.layers.8.attention.k.bias: INT32, bias_scale=1.307043e-05
+  bert.encoder.layers.8.attention.v.weight: weight_scale=3.516475e-04, input_scale=4.614844e-02
+  bert.encoder.layers.8.attention.v.bias: INT32, bias_scale=1.622798e-05
+  bert.encoder.layers.8.attention.out.weight: weight_scale=3.433030e-04, input_scale=1.136023e-02
+  bert.encoder.layers.8.attention.out.bias: INT32, bias_scale=3.900002e-06
+  bert.encoder.layers.8.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.8.ffn.dense_1.weight: weight_scale=4.072320e-04, input_scale=4.737307e-02
+  bert.encoder.layers.8.ffn.dense_1.bias: INT32, bias_scale=1.929183e-05
+  bert.encoder.layers.8.ffn.dense_2.weight: weight_scale=2.544782e-04, input_scale=3.400421e-02
+  bert.encoder.layers.8.ffn.dense_2.bias: INT32, bias_scale=8.653330e-06
+  bert.encoder.layers.8.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.9.attention.q.weight: weight_scale=2.832242e-04, input_scale=5.220258e-02
+  bert.encoder.layers.9.attention.q.bias: INT32, bias_scale=1.478504e-05
+  bert.encoder.layers.9.attention.k.weight: weight_scale=2.832256e-04, input_scale=5.220258e-02
+  bert.encoder.layers.9.attention.k.bias: INT32, bias_scale=1.478511e-05
+  bert.encoder.layers.9.attention.v.weight: weight_scale=3.548148e-04, input_scale=5.220258e-02
+  bert.encoder.layers.9.attention.v.bias: INT32, bias_scale=1.852225e-05
+  bert.encoder.layers.9.attention.out.weight: weight_scale=3.498371e-04, input_scale=1.271933e-02
+  bert.encoder.layers.9.attention.out.bias: INT32, bias_scale=4.449694e-06
+  bert.encoder.layers.9.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.9.ffn.dense_1.weight: weight_scale=3.855128e-04, input_scale=5.020457e-02
+  bert.encoder.layers.9.ffn.dense_1.bias: INT32, bias_scale=1.935450e-05
+  bert.encoder.layers.9.ffn.dense_2.weight: weight_scale=2.619570e-04, input_scale=3.118199e-02
+  bert.encoder.layers.9.ffn.dense_2.bias: INT32, bias_scale=8.168340e-06
+  bert.encoder.layers.9.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.10.attention.q.weight: weight_scale=2.832256e-04, input_scale=5.598552e-02
+  bert.encoder.layers.10.attention.q.bias: INT32, bias_scale=1.585653e-05
+  bert.encoder.layers.10.attention.k.weight: weight_scale=2.832259e-04, input_scale=5.598552e-02
+  bert.encoder.layers.10.attention.k.bias: INT32, bias_scale=1.585655e-05
+  bert.encoder.layers.10.attention.v.weight: weight_scale=3.443152e-04, input_scale=5.598552e-02
+  bert.encoder.layers.10.attention.v.bias: INT32, bias_scale=1.927666e-05
+  bert.encoder.layers.10.attention.out.weight: weight_scale=3.457906e-04, input_scale=1.374196e-02
+  bert.encoder.layers.10.attention.out.bias: INT32, bias_scale=4.751842e-06
+  bert.encoder.layers.10.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.10.ffn.dense_1.weight: weight_scale=3.820991e-04, input_scale=5.439724e-02
+  bert.encoder.layers.10.ffn.dense_1.bias: INT32, bias_scale=2.078514e-05
+  bert.encoder.layers.10.ffn.dense_2.weight: weight_scale=2.412350e-04, input_scale=3.190585e-02
+  bert.encoder.layers.10.ffn.dense_2.bias: INT32, bias_scale=7.696806e-06
+  bert.encoder.layers.10.ffn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.11.attention.q.weight: weight_scale=2.832258e-04, input_scale=5.735484e-02
+  bert.encoder.layers.11.attention.q.bias: INT32, bias_scale=1.624437e-05
+  bert.encoder.layers.11.attention.k.weight: weight_scale=2.832261e-04, input_scale=5.735484e-02
+  bert.encoder.layers.11.attention.k.bias: INT32, bias_scale=1.624439e-05
+  bert.encoder.layers.11.attention.v.weight: weight_scale=3.473219e-04, input_scale=5.735484e-02
+  bert.encoder.layers.11.attention.v.bias: INT32, bias_scale=1.992060e-05
+  bert.encoder.layers.11.attention.out.weight: weight_scale=3.584725e-04, input_scale=1.426005e-02
+  bert.encoder.layers.11.attention.out.bias: INT32, bias_scale=5.111834e-06
+  bert.encoder.layers.11.attn_layer_norm.bias: FP32 (fallback)
+  bert.encoder.layers.11.ffn.dense_1.weight: weight_scale=3.978995e-04, input_scale=4.910828e-02
+  bert.encoder.layers.11.ffn.dense_1.bias: INT32, bias_scale=1.954016e-05
+  bert.encoder.layers.11.ffn.dense_2.weight: weight_scale=2.608449e-04, input_scale=2.382349e-02
+  bert.encoder.layers.11.ffn.dense_2.bias: INT32, bias_scale=6.214236e-06
+  bert.encoder.layers.11.ffn_layer_norm.bias: FP32 (fallback)
+  bert.pooler.weight: weight_scale=3.296595e-04, input_scale=1.0 (default)
+  bert.pooler.bias: INT32, bias_scale=3.296595e-04
+  classifier.weight: weight_scale=2.791923e-04, input_scale=7.824770e-03
+  classifier.bias: INT32, bias_scale=2.184615e-06
+
+✓ Saved quantized weights to /kaggle/working/weights_with_scales.npz
+✓ Saved scale metadata to /kaggle/working/weights_with_scales_scale_metadata.json
+
+======================================================================
+GELU INPUT RANGE ANALYSIS
+======================================================================
+
+MEASURED RANGES FROM 1980 BATCHES:
+  Overall range:        [-6.4586, 5.6423]
+  Typical range (90%):  [-5.9796, 5.0549]
+  Median range:         [-4.8317, 4.0117]
+  Mean of values:       0.4484
+  Typical std dev:      0.6604
+
+======================================================================
+EXTRACTION SUMMARY
+======================================================================
+Total size: 104.76 MB
+Layers with measured input scales: 77
+INT32 biases: 74
+======================================================================

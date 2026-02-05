@@ -341,7 +341,6 @@ def test_int8_model():
     int8_size_mb = total_int8_bytes / (1024 * 1024)
     print(f"Quantized INT8 model size (weights only): ~{int8_size_mb:.2f}MB")
     print(f"Effective compression ratio: ~{fp32_model_size_mb/int8_size_mb:.2f}x")
-
+    
 if __name__ == "__main__":
     test_int8_model()
-
