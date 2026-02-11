@@ -8,13 +8,13 @@ module systolic #(
     input logic wt_en,
     input logic valid_in,
     input logic [(DATAWIDTH) - 1:0] matrix_A [N_SIZE-1:0],   
-    input logic [(DATAWIDTH*3) - 1:0] matrix_B [N_SIZE-1:0],
+    input logic [(DATAWIDTH*4) - 1:0] matrix_B [N_SIZE-1:0],
     input logic [DATAWIDTH-1:0] wt_flat [N_SIZE*N_SIZE-1:0],
-    output logic [(DATAWIDTH*3) - 1:0] matrix_C [N_SIZE-1:0]
+    output logic [(DATAWIDTH*4) - 1:0] matrix_C [N_SIZE-1:0]
 );
     // used to pass the elements row wise and column wise
-    logic [DATAWIDTH-1:0] row_wire [0:N_SIZE];
-    logic [(DATAWIDTH*3) - 1:0] col_wire [0:N_SIZE][0:N_SIZE];
+    logic [DATAWIDTH-1:0] row_wire [0:N_SIZE][0:N_SIZE];
+    logic [(DATAWIDTH*4) - 1:0] col_wire [0:N_SIZE][0:N_SIZE];
     logic [DATAWIDTH-1:0] weight_wire [0:N_SIZE][0:N_SIZE];
 
     genvar l, p;
@@ -30,7 +30,7 @@ module systolic #(
     genvar i;
     generate
         for (i = 0; i < N_SIZE; i = i + 1) begin
-            assign row_wire[i] = matrix_A[i];
+            assign row_wire[i][0] = matrix_A[i];
             assign col_wire[0][i] = matrix_B[i];
 
         end
@@ -46,9 +46,10 @@ module systolic #(
                     .wt_en(wt_en),
                     .valid_in(valid_in),
                     .wt(weight_wire[ii][jj]),
-                    .in_A(row_wire[ii]),
+                    .in_A(row_wire[ii][jj]),
                     .in_B(col_wire[ii][jj]),
-                    .out_D(col_wire[ii+1][jj])
+                    .out_D(col_wire[ii+1][jj]),
+                    .out_R(row_wire[ii][jj+1])
                 );
             end
         end

@@ -9,9 +9,9 @@ module systolic_tb;
     logic wt_en;
     logic valid_in;
     logic [(DATAWIDTH) - 1:0] matrix_A [N_SIZE-1:0];
-    logic [(DATAWIDTH*3) - 1:0] matrix_B [N_SIZE-1:0];
+    logic [(DATAWIDTH*4) - 1:0] matrix_B [N_SIZE-1:0];
     logic [DATAWIDTH-1:0] wt_flat [N_SIZE*N_SIZE-1:0];
-    logic [(DATAWIDTH*3) - 1:0] matrix_C [N_SIZE-1:0];
+    logic [(DATAWIDTH*4) - 1:0] matrix_C [N_SIZE-1:0];
 
     // Clock generation
     initial begin
@@ -44,8 +44,8 @@ module systolic_tb;
     logic [DATAWIDTH-1:0] W_tile4[1:0][1:0];
 
     // Storage for captured outputs (4 rows of output)
-    logic [(DATAWIDTH*3) - 1:0] partial_sum [4:0][1:0] = '{default: 0};
-    logic [(DATAWIDTH*3) - 1:0] result_matrix [3:0][3:0];
+    logic [(DATAWIDTH*4) - 1:0] partial_sum [4:0][1:0] = '{default: 0};
+    logic [(DATAWIDTH*4) - 1:0] result_matrix [3:0][3:0];
 
     // Initialize data
     initial begin

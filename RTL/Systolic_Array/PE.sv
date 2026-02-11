@@ -8,9 +8,10 @@ module PE #(
 
     input  logic [(DATAWIDTH) - 1:0] wt,
     input  logic [(DATAWIDTH) - 1:0] in_A,
-    input  logic [(DATAWIDTH*3) - 1:0] in_B,
+    input  logic [(DATAWIDTH*4) - 1:0] in_B,
 
-    output logic [(DATAWIDTH*3) - 1:0] out_D
+    output logic [(DATAWIDTH*4) - 1:0] out_D,
+    output logic [(DATAWIDTH) - 1:0] out_R
 );
 
     logic [(DATAWIDTH) - 1:0] weight;
@@ -18,6 +19,7 @@ module PE #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             out_D  <= 0;
+            out_R  <= 0;
             weight <= 0;
         end else begin
             // load weight into local reg
@@ -27,6 +29,7 @@ module PE #(
             // only compute when valid
             if (valid_in)
                 (* use_dsp = "yes" *) out_D <= (in_A * weight) + in_B;
+                out <= in_A;
         end
     end
 endmodule
