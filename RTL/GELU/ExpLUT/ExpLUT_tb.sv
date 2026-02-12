@@ -1,181 +1,254 @@
 `timescale 1ns/1ps
 
-module ExpLUT_tb;
+module SharedLUT_tb;
 
     // Parameters
-    localparam int Q = 26;
-    localparam int W = 32;
+    localparam int Q = 26;          // Q5.26 format
+    localparam int W = 32;          // 32-bit width
     localparam int NUM_SEGMENTS = 8;
     localparam int NUM_PORTS = 32;
 
     // DUT signals
-    logic [2:0]              segment_index [NUM_PORTS-1:0];
-    logic signed [W-1:0]     k_coeff [NUM_PORTS-1:0];
-    logic signed [W-1:0]     b_intercept [NUM_PORTS-1:0];
+    logic [2:0] segment_idx [NUM_PORTS-1:0];
+    logic signed [W-1:0] k_coeff [NUM_PORTS-1:0];
+    logic signed [W-1:0] b_intercept [NUM_PORTS-1:0];
 
-    // Expected values for verification
-    localparam logic signed [W-1:0] k_expected [0:7] = '{
-        32'h02E57078, // 0.724062
-        32'h03288B9B, // 0.789595
-        32'h0371B996, // 0.861060
-        32'h03C18722, // 0.938992
-        32'h04188DB7, // 1.023978
-        32'h047774AE, // 1.116656
-        32'h04DEF287, // 1.217722
-        32'h054FCE46  // 1.327935
+    // Expected values (Q5.26 format)
+    localparam logic signed [W-1:0] K_expected [0:7] = '{
+        32'h02E57078, 32'h03288B9B, 32'h0371B996, 32'h03C18722,
+        32'h04188DB7, 32'h047774AE, 32'h04DEF287, 32'h054FCE46
     };
 
-    localparam logic signed [W-1:0] b_expected [0:7] = '{
-        32'h04000000, // 1.000000
-        32'h03F79C9B, // 0.991808
-        32'h03E5511D, // 0.973942
-        32'h03C76408, // 0.944718
-        32'h039BE0BD, // 0.902224
-        32'h03609063, // 0.844301
-        32'h0312F200, // 0.768501
-        32'h02B031B9  // 0.672065
+    localparam logic signed [W-1:0] B_expected [0:7] = '{
+        32'h04000000, 32'h03F79C9B, 32'h03E5511D, 32'h03C76408,
+        32'h039BE0BD, 32'h03609063, 32'h0312F200, 32'h02B031B9
     };
 
-    // Instantiate DUT
-    ExpLUT #(
+    // Error tracking
+    int errors;
+
+    // DUT instantiation
+    SharedLUT #(
         .Q(Q),
         .W(W),
         .NUM_SEGMENTS(NUM_SEGMENTS),
         .NUM_PORTS(NUM_PORTS)
     ) dut (
-        .segment_index(segment_index),
+        .segment_index(segment_idx),
         .k_coeff(k_coeff),
         .b_intercept(b_intercept)
     );
 
-    // Test variables
-    int errors;
-    real k_real, b_real;
-
-    initial begin
-        errors = 0;
-
-        $display("\n========================================================================");
-        $display("                    ExpLUT Module Test");
-        $display("========================================================================");
-        $display("Testing %0d parallel ports with %0d segments\n", NUM_PORTS, NUM_SEGMENTS);
-
-        // Test 1: All ports access segment 0
-        $display("Test 1: All ports access segment 0");
-        for (int i = 0; i < NUM_PORTS; i++) begin
-            segment_index[i] = 3'd0;
-        end
-        #10;
-        
-        for (int i = 0; i < NUM_PORTS; i++) begin
-            if (k_coeff[i] !== k_expected[0] || b_intercept[i] !== b_expected[0]) begin
-                $display("ERROR: Port %0d - Expected k=0x%08h, b=0x%08h | Got k=0x%08h, b=0x%08h",
-                         i, k_expected[0], b_expected[0], k_coeff[i], b_intercept[i]);
-                errors++;
+    // ====================================================================
+    // Test 1: Timing verification
+    // ====================================================================
+    task test_timing;
+        int i;
+        begin
+            $display("\n=== Test 1: Timing Check ===");
+            for (i = 0; i < NUM_PORTS; i++) begin
+                segment_idx[i] = 3'd0;
             end
-        end
-        if (errors == 0) $display("  PASS: All ports correctly accessed segment 0\n");
-
-        // Test 2: Each port accesses different segment (cycling through 0-7)
-        $display("Test 2: Ports access different segments (cycling pattern)");
-        for (int i = 0; i < NUM_PORTS; i++) begin
-            segment_index[i] = i % 8;  // Cycle through segments 0-7
-        end
-        #10;
-        
-        for (int i = 0; i < NUM_PORTS; i++) begin
-            automatic int expected_seg;  // Declare as automatic
-            expected_seg = i % 8;
-            if (k_coeff[i] !== k_expected[expected_seg] || b_intercept[i] !== b_expected[expected_seg]) begin
-                $display("ERROR: Port %0d (seg %0d) - Expected k=0x%08h, b=0x%08h | Got k=0x%08h, b=0x%08h",
-                         i, expected_seg, k_expected[expected_seg], b_expected[expected_seg], 
-                         k_coeff[i], b_intercept[i]);
-                errors++;
+            
+            #1; // Only 1ns!
+            
+            for (i = 0; i < NUM_PORTS; i++) begin
+                if (k_coeff[i] !== K_expected[0] || b_intercept[i] !== B_expected[0]) begin
+                    $display("ERROR: Port %0d not stable after 1ns", i);
+                    $display("  Expected K: 0x%08h, Got: 0x%08h", K_expected[0], k_coeff[i]);
+                    $display("  Expected B: 0x%08h, Got: 0x%08h", B_expected[0], b_intercept[i]);
+                    errors++;
+                end
             end
+            
+            if (errors == 0) 
+                $display("✓ PASS: All outputs stable within 1ns");
         end
-        if (errors == 0) $display("  PASS: All ports correctly accessed their assigned segments\n");
+    endtask
 
-        // Test 3: All segments accessed by port 0 (verify all LUT entries)
-        $display("Test 3: Verify all 8 LUT entries using port 0");
-        $display("Seg |     k (hex)      k (real)   |     b (hex)      b (real)");
-        $display("----|------------------------------|------------------------------");
-        
-        for (int seg = 0; seg < NUM_SEGMENTS; seg++) begin
-            segment_index[0] = seg;
+    // ====================================================================
+    // Test 2: 12-Layer BERT simulation
+    // ====================================================================
+    task test_layers;
+        int layer, i, seg;
+        begin
+            $display("\n=== Test 2: 12-Layer BERT Simulation ===");
+            for (layer = 0; layer < 12; layer++) begin
+                for (i = 0; i < NUM_PORTS; i++) begin
+                    segment_idx[i] = (layer + i) % NUM_SEGMENTS;
+                end
+                #10;
+                
+                // Verify first port
+                seg = segment_idx[0];
+                if (k_coeff[0] !== K_expected[seg] || b_intercept[0] !== B_expected[seg]) begin
+                    $display("ERROR: Layer %0d port 0 mismatch", layer);
+                    $display("  Segment: %0d", seg);
+                    $display("  Expected K: 0x%08h, Got: 0x%08h", K_expected[seg], k_coeff[0]);
+                    $display("  Expected B: 0x%08h, Got: 0x%08h", B_expected[seg], b_intercept[0]);
+                    errors++;
+                end
+            end
+            
+            if (errors == 0)
+                $display("✓ PASS: All 12 layers correct");
+        end
+    endtask
+
+    // ====================================================================
+    // Test 3: Random access pattern
+    // ====================================================================
+    task test_random;
+        int i, seg;
+        string status;
+        begin
+            $display("\n=== Test 3: Random Access Pattern ===");
+            
+            for (i = 0; i < NUM_PORTS; i++) begin
+                segment_idx[i] = $urandom_range(0, 7);
+            end
             #10;
             
-            k_real = $itor(k_coeff[0]) / real'(1 << Q);
-            b_real = $itor(b_intercept[0]) / real'(1 << Q);
+            $display("Port | Seg |   k_coeff (hex)   |  b_intercept (hex) | Status");
+            $display("-----|-----|-------------------|--------------------|---------");
             
-            $display(" %0d  | 0x%08h  %9.6f  | 0x%08h  %9.6f", 
-                     seg, k_coeff[0], k_real, b_intercept[0], b_real);
-            
-            if (k_coeff[0] !== k_expected[seg] || b_intercept[0] !== b_expected[seg]) begin
-                $display("ERROR: Segment %0d mismatch!", seg);
-                errors++;
+            for (i = 0; i < 8; i++) begin  // Show first 8 ports
+                seg = segment_idx[i];
+                status = (k_coeff[i] === K_expected[seg] && 
+                         b_intercept[i] === B_expected[seg]) ? "PASS" : "FAIL";
+                $display("  %2d |  %0d  |     0x%08h    |     0x%08h     | %s", 
+                         i, seg, k_coeff[i], b_intercept[i], status);
+                
+                if (status == "FAIL") errors++;
             end
+            
+            // Check remaining ports
+            for (i = 8; i < NUM_PORTS; i++) begin
+                seg = segment_idx[i];
+                if (k_coeff[i] !== K_expected[seg] || b_intercept[i] !== B_expected[seg]) begin
+                    errors++;
+                end
+            end
+            
+            if (errors == 0)
+                $display("✓ PASS: Random access correct");
         end
-        if (errors == 0) $display("\n  PASS: All LUT entries correct\n");
+    endtask
 
-        // Test 4: Random access pattern
-        $display("Test 4: Random access pattern");
-        for (int i = 0; i < NUM_PORTS; i++) begin
-            segment_index[i] = $urandom_range(0, 7);
+    // ====================================================================
+    // Test 4: All segments via port 0 (with real number conversion)
+    // ====================================================================
+    task test_all_segments;
+        int seg;
+        real k_real, b_real;
+        longint k_int, b_int;  // Use longint for 32-bit values
+        begin
+            $display("\n=== Test 4: All Segment Entries (Q5.26) ===");
+            $display("Seg |      k (hex)        k (real)   |      b (hex)        b (real)");
+            $display("----|----------------------------------|----------------------------------");
+            
+            for (seg = 0; seg < NUM_SEGMENTS; seg++) begin
+                segment_idx[0] = seg;
+                #10;
+                
+                // Convert Q5.26 to real: divide by 2^26
+                k_int = k_coeff[0];
+                b_int = b_intercept[0];
+                k_real = $itor(k_int) / (2.0 ** Q);
+                b_real = $itor(b_int) / (2.0 ** Q);
+                
+                $display(" %0d  |  0x%08h  %9.6f  |  0x%08h  %9.6f", 
+                         seg, k_coeff[0], k_real, b_intercept[0], b_real);
+                
+                if (k_coeff[0] !== K_expected[seg] || b_intercept[0] !== B_expected[seg]) begin
+                    $display("ERROR: Segment %0d mismatch!", seg);
+                    $display("  Expected K: 0x%08h, Got: 0x%08h", K_expected[seg], k_coeff[0]);
+                    $display("  Expected B: 0x%08h, Got: 0x%08h", B_expected[seg], b_intercept[0]);
+                    errors++;
+                end
+            end
+            
+            if (errors == 0)
+                $display("✓ PASS: All LUT entries correct");
+        end
+    endtask
+
+    // ====================================================================
+    // Test 5: Multi-port stress test (all ports, all segments)
+    // ====================================================================
+    task test_stress;
+        int port, seg;
+        int local_errors;
+        begin
+            $display("\n=== Test 5: Multi-Port Stress Test ===");
+            $display("Testing all %0d ports with all %0d segments...", NUM_PORTS, NUM_SEGMENTS);
+            
+            local_errors = 0;
+            
+            for (seg = 0; seg < NUM_SEGMENTS; seg++) begin
+                // Set all ports to same segment
+                for (port = 0; port < NUM_PORTS; port++) begin
+                    segment_idx[port] = seg;
+                end
+                #5;
+                
+                // Verify all ports
+                for (port = 0; port < NUM_PORTS; port++) begin
+                    if (k_coeff[port] !== K_expected[seg] || 
+                        b_intercept[port] !== B_expected[seg]) begin
+                        $display("ERROR: Segment %0d, Port %0d failed", seg, port);
+                        local_errors++;
+                        errors++;
+                    end
+                end
+            end
+            
+            if (local_errors == 0)
+                $display("✓ PASS: %0d segment × %0d port = %0d tests passed", 
+                         NUM_SEGMENTS, NUM_PORTS, NUM_SEGMENTS * NUM_PORTS);
+            else
+                $display("✗ FAIL: %0d/%0d tests failed", 
+                         local_errors, NUM_SEGMENTS * NUM_PORTS);
+        end
+    endtask
+
+    // ====================================================================
+    // Main test sequence
+    // ====================================================================
+    initial begin
+        int j;
+        
+        errors = 0;
+        
+        $display("========================================");
+        $display("  ExpLUT Testbench (Q5.26 Format)");
+        $display("  WIDTH=%0d bits, Q=%0d fractional bits", W, Q);
+        $display("  PORTS=%0d, SEGMENTS=%0d", NUM_PORTS, NUM_SEGMENTS);
+        $display("  Range: [%0d, %0d]", -(1 << (W-Q-1)), (1 << (W-Q-1))-1);
+        $display("  Precision: 2^-%0d ≈ %.3e", Q, 2.0**(-Q));
+        $display("========================================");
+        
+        // Initialize
+        for (j = 0; j < NUM_PORTS; j++) begin
+            segment_idx[j] = 3'd0;
         end
         #10;
         
-        $display("Port | Seg | k_coeff (hex) | b_intercept (hex) | Status");
-        $display("-----|-----|---------------|-------------------|--------");
-        for (int i = 0; i < 8; i++) begin  // Show first 8 ports
-            automatic int seg;
-            automatic string status;
-            seg = segment_index[i];
-            status = (k_coeff[i] === k_expected[seg] && 
-                     b_intercept[i] === b_expected[seg]) ? "PASS" : "FAIL";
-            $display("  %2d |  %0d  | 0x%08h    | 0x%08h        | %s", 
-                     i, seg, k_coeff[i], b_intercept[i], status);
-            
-            if (status == "FAIL") errors++;
-        end
-        $display("  ... (remaining ports also checked)");
+        // Run all tests
+        test_timing();
+        test_layers();
+        test_random();
+        test_all_segments();
+        test_stress();  // Extra stress test for Q5.26
         
-        for (int i = 8; i < NUM_PORTS; i++) begin
-            automatic int seg;
-            seg = segment_index[i];
-            if (k_coeff[i] !== k_expected[seg] || b_intercept[i] !== b_expected[seg]) begin
-                errors++;
-            end
-        end
-        if (errors == 0) $display("\n  PASS: Random access pattern correct\n");
-
-        // Test 5: Timing check - simultaneous access
-        $display("Test 5: Simultaneous multi-port access timing");
-        for (int i = 0; i < NUM_PORTS; i++) begin
-            segment_index[i] = (i / 4) % 8;  // Groups of 4 access same segment
-        end
-        
-        #1;  // Check propagation delay
-        $display("  After 1ns, all outputs should be stable");
-        
-        for (int i = 0; i < NUM_PORTS; i++) begin
-            automatic int expected_seg;
-            expected_seg = (i / 4) % 8;
-            if (k_coeff[i] !== k_expected[expected_seg] || b_intercept[i] !== b_expected[expected_seg]) begin
-                $display("ERROR: Timing issue at port %0d", i);
-                errors++;
-            end
-        end
-        if (errors == 0) $display("  PASS: All outputs stable within 1ns (combinational)\n");
-
         // Summary
-        $display("========================================================================");
-        if (errors == 0) begin
-            $display("                    ALL TESTS PASSED!");
-        end else begin
-            $display("                    TESTS FAILED: %0d errors", errors);
-        end
-        $display("========================================================================\n");
-
+        $display("\n========================================");
+        if (errors == 0)
+            $display("  ✓ ALL TESTS PASSED!");
+        else
+            $display("  ✗ FAILED: %0d errors", errors);
+        $display("========================================\n");
+        
         $finish;
     end
 
