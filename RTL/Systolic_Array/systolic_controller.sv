@@ -26,9 +26,11 @@ module systolic_controller #(
     localparam [1:0] COMPUTE = 2'b10;
 
     localparam count_bits = $clog2(num_of_raws + N_SIZE - 1);
+    localparam wt_count_bits = $clog2(N_SIZE);
 
     logic [1:0] cs ,ns;
     logic [count_bits-1:0] cycle_cnt;
+    logic [wt_count_bits-1:0] wt_load_cnt;
 
     // assign current state to next state
     always @(posedge clk or negedge rst_n) begin
@@ -47,8 +49,9 @@ module systolic_controller #(
             end
             
             LOADING_WEIGHT: begin
-                if (!load_weight)
+                if ((!load_weight) || (wt_load_cnt == N_SIZE-1))begin
                     ns = IDLE;
+                end
             end
             
             COMPUTE: begin
@@ -113,13 +116,26 @@ module systolic_controller #(
     // counter circuit 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            cycle_cnt <= 0;
+            cycle_cnt <= '0;
         end
         else if (cs == COMPUTE && valid_in) begin
             cycle_cnt <= cycle_cnt + 1;
         end
         else if (cs == IDLE) begin
-            cycle_cnt <= 0;
+            cycle_cnt <= '0;
+        end
+    end
+
+    // Weight loading counter
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            wt_load_cnt <= '0;
+        end
+        else if (cs == LOADING_WEIGHT) begin
+            wt_load_cnt <= wt_load_cnt + 1;
+        end
+        else begin
+            wt_load_cnt <= '0;
         end
     end
 endmodule
