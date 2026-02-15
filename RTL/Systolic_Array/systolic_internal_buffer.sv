@@ -1,5 +1,6 @@
 module systolic_internal_buffer #(
-    parameter DATAWIDTH = 256,
+    parameter DATAWIDTH_output = 32,
+    parameter N_SIZE = 32,
     parameter DEPTH = 543, // (512 + 31(zeros)) 
     parameter ADDR_WIDTH  = 10
 ) (
@@ -7,12 +8,12 @@ module systolic_internal_buffer #(
     input logic we,
     input logic [ADDR_WIDTH-1:0] rd_addr,
     input logic [ADDR_WIDTH-1:0] wr_addr,
-    input logic [DATAWIDTH-1:0] in_data,
+    input logic [(DATAWIDTH_output*N_SIZE)-1:0] in_data,
 
-    output logic [DATAWIDTH-1:0] out_data,
+    output logic [(DATAWIDTH_output*N_SIZE)-1:0] out_data,
 );
 
-    logic [DATAWIDTH-1:0] mem [DEPTH-1:0];
+    logic [(DATAWIDTH_output*N_SIZE)-1:0] mem [DEPTH-1:0];
 
     always @(posedge clk) begin
         if (we) begin
