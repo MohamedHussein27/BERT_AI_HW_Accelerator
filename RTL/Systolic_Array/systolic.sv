@@ -10,20 +10,21 @@ module systolic #(
     input logic valid_in,
     input logic [(DATAWIDTH) - 1:0] matrix_A [N_SIZE-1:0],   
     input logic [DATAWIDTH_output - 1:0] matrix_B [N_SIZE-1:0],
-    input logic [DATAWIDTH-1:0] wt_flat [N_SIZE*N_SIZE-1:0],
+    input logic [DATAWIDTH-1:0] wt_serial [N_SIZE-1:0],
+    input logic [$clog2(N_SIZE)-1:0] wt_row_sel,
+
     output logic [DATAWIDTH_output-1:0] matrix_C [N_SIZE-1:0]
 );
     // used to pass the elements row wise and column wise
     logic [DATAWIDTH-1:0] row_wire [0:N_SIZE][0:N_SIZE];
     logic [DATAWIDTH_output-1:0] col_wire [0:N_SIZE][0:N_SIZE];
-    logic [DATAWIDTH-1:0] weight_wire [0:N_SIZE][0:N_SIZE];
 
-    genvar l, p;
+    logic wt_en_row [N_SIZE-1:0];
+
+    genvar l;
     generate
         for (l = 0; l < N_SIZE; l = l + 1) begin
-            for (p = 0; p < N_SIZE; p = p + 1) begin
-                assign weight_wire[l][p] = wt_flat[l*N_SIZE + p];
-            end
+            assign wt_en_row[l] = wt_en && (wt_row_sel == l)
         end
     endgenerate
     
@@ -47,9 +48,9 @@ module systolic #(
                     pe_inst(
                     .clk(clk),
                     .rst_n(rst_n),
-                    .wt_en(wt_en),
+                    .wt_en(wt_en_row[ii]),
                     .valid_in(valid_in),
-                    .wt(weight_wire[ii][jj]),
+                    .wt(wt_serial[jj]),
                     .in_A(row_wire[ii][jj]),
                     .in_B(col_wire[ii][jj]),
                     .out_D(col_wire[ii+1][jj]),

@@ -14,13 +14,13 @@ module systolic_top #(
     parameter DEPTH = 543
 ) (
     input  logic [BUS_WIDTH-1:0] in_A,
-    input  logic [(BUS_WIDTH*N_SIZE)-1:0] weights,
+    input  logic [BUS_WIDTH-1:0] weights,
     input  logic clk,
     input  logic rst_n,
     input  logic valid_in,
     input  logic load_weight,
     input  logic last_tile,
-    input  logic first_iteration 
+    input  logic first_iteration, 
     input  logic [ADDR_WIDTH-1:0] rd_addr_outbuffer,
     // Status signals
     output logic ready,
@@ -34,11 +34,14 @@ module systolic_top #(
     logic we, we_outbuffer_wire;
     logic [ADDR_WIDTH-1:0] rd_addr;
     logic [ADDR_WIDTH-1:0] wr_addr;
+    logic [$clog2(N_SIZE)-1:0] wt_row_sel;
 
     logic [DATAWIDTH-1:0] in_A_wire [N_SIZE-1:0];
     logic [(DATAWIDTH)-1:0] skew_out_wire[N_SIZE-1:0];
 
     logic [DATAWIDTH_output - 1:0] in_B_wire [N_SIZE-1:0];
+    logic [DATAWIDTH-1:0] wt_wire [N_SIZE-1:0];
+
     
     logic [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_output;
     logic [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_intput;
@@ -47,7 +50,7 @@ module systolic_top #(
 
     assign we_outbuffer_wire = (last_tile) ? we : 0; 
 
-    genvar i, j, k;
+    genvar i, j, k, p;
     generate
         for (i = 0; i < N_SIZE; i = i + 1 ) begin
             assign in_A_wire[i] = in_A[i*DATAWIDTH +: DATAWIDTH];
@@ -60,6 +63,10 @@ module systolic_top #(
         for (k = 0; k < N_SIZE; k = k + 1 ) begin
             assign interbuffer_intput[k*DATAWIDTH_output +: DATAWIDTH_output] = out_C_wire[k];
         end      
+
+        for (p = 0; p < N_SIZE; p = p + 1 ) begin
+            assign wt_wire[i] = weights[p*DATAWIDTH +: DATAWIDTH];
+        end
     endgenerate
 
     // systolic controller
@@ -78,6 +85,7 @@ module systolic_top #(
         .we(we),
         .rd_addr(rd_addr),
         .wr_addr(wr_addr),
+        .wt_row_sel(wt_row_sel),
         .ready(ready),
         .busy(busy),
         .done(done)
@@ -105,7 +113,8 @@ module systolic_top #(
         .valid_in (valid_in),
         .matrix_A (skew_out_wire),
         .matrix_B (in_B_wire),
-        .wt_flat  (),// the weight input should be handeld TODO
+        .wt_serial  (wt_wire),
+        .wt_row_sel(wt_row_sel),
         .matrix_C (out_C_wire)
     );
     // partial sum buffer

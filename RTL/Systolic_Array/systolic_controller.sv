@@ -14,6 +14,7 @@ module systolic_controller #(
     output logic we,
     output logic [ADDR_WIDTH-1:0] rd_addr,
     output logic [ADDR_WIDTH-1:0] wr_addr,
+    output logic [$clog2(N_SIZE)-1:0] wt_row_sel, 
     
     // Status signals
     output logic ready,
@@ -138,4 +139,6 @@ module systolic_controller #(
             wt_load_cnt <= '0;
         end
     end
+
+    assign wt_row_sel = wt_load_cnt;
 endmodule
