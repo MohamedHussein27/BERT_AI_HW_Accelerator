@@ -121,7 +121,7 @@ module systolic_top #(
     systolic_internal_buffer #(
         .DATAWIDTH_output(DATAWIDTH_output),
         .N_SIZE(N_SIZE),
-        .DEPTH     (DEPTH),
+        .DEPTH(DEPTH),
         .ADDR_WIDTH(ADDR_WIDTH)
     ) partial_sum_buffer (
         .clk     (clk),
@@ -133,8 +133,9 @@ module systolic_top #(
     );
     // output buffer
     systolic_internal_buffer #(
-        .DATAWIDTH (BUS_WIDTH),
-        .DEPTH     (DEPTH),
+        .DATAWIDTH_output(DATAWIDTH_output),
+        .N_SIZE(N_SIZE),
+        .DEPTH(DEPTH),
         .ADDR_WIDTH(ADDR_WIDTH)
     ) out_buffer (
         .clk     (clk),
