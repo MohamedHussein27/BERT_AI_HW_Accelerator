@@ -6,8 +6,8 @@ module skew_buffer #(
     input logic clk,
     input logic rst_n,
     input logic valid_in, // output 0 if no valid input and hold registers values
-    input logic [(DATAWIDTH)-1:0] in_A[N_SIZE],
-    output logic [(DATAWIDTH)-1:0] out[N_SIZE]
+    input logic [(DATAWIDTH)-1:0] in_A[N_SIZE-1:0],
+    output logic [(DATAWIDTH)-1:0] out[N_SIZE-1:0]
 );
     genvar i;
     generate
