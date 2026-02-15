@@ -65,7 +65,7 @@ module systolic_top #(
         end      
 
         for (p = 0; p < N_SIZE; p = p + 1 ) begin
-            assign wt_wire[i] = weights[p*DATAWIDTH +: DATAWIDTH];
+            assign wt_wire[p] = weights[p*DATAWIDTH +: DATAWIDTH];
         end
     endgenerate
 
