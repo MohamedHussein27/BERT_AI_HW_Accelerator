@@ -24,7 +24,7 @@ module systolic #(
     genvar l;
     generate
         for (l = 0; l < N_SIZE; l = l + 1) begin
-            assign wt_en_row[l] = wt_en && (wt_row_sel == l)
+            assign wt_en_row[l] = wt_en && (wt_row_sel == l);
         end
     endgenerate
     

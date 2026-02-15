@@ -10,7 +10,7 @@ module systolic_internal_buffer #(
     input logic [ADDR_WIDTH-1:0] wr_addr,
     input logic [(DATAWIDTH_output*N_SIZE)-1:0] in_data,
 
-    output logic [(DATAWIDTH_output*N_SIZE)-1:0] out_data,
+    output logic [(DATAWIDTH_output*N_SIZE)-1:0] out_data
 );
 
     logic [(DATAWIDTH_output*N_SIZE)-1:0] mem [DEPTH-1:0];
