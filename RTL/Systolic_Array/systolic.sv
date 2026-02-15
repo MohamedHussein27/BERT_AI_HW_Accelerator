@@ -1,6 +1,7 @@
 // module to generate and connect PE's to each other
 module systolic #(
     parameter DATAWIDTH = 8,
+    parameter DATAWIDTH_output = 32,
     parameter N_SIZE = 32
 ) (
     input logic clk,
@@ -8,13 +9,13 @@ module systolic #(
     input logic wt_en,
     input logic valid_in,
     input logic [(DATAWIDTH) - 1:0] matrix_A [N_SIZE-1:0],   
-    input logic [(DATAWIDTH*4) - 1:0] matrix_B [N_SIZE-1:0],
+    input logic [DATAWIDTH_output - 1:0] matrix_B [N_SIZE-1:0],
     input logic [DATAWIDTH-1:0] wt_flat [N_SIZE*N_SIZE-1:0],
-    output logic [(DATAWIDTH*4) - 1:0] matrix_C [N_SIZE-1:0]
+    output logic [DATAWIDTH_output-1:0] matrix_C [N_SIZE-1:0]
 );
     // used to pass the elements row wise and column wise
     logic [DATAWIDTH-1:0] row_wire [0:N_SIZE][0:N_SIZE];
-    logic [(DATAWIDTH*4) - 1:0] col_wire [0:N_SIZE][0:N_SIZE];
+    logic [DATAWIDTH_output-1:0] col_wire [0:N_SIZE][0:N_SIZE];
     logic [DATAWIDTH-1:0] weight_wire [0:N_SIZE][0:N_SIZE];
 
     genvar l, p;
@@ -40,7 +41,10 @@ module systolic #(
     generate
         for (ii = 0; ii < N_SIZE; ii = ii + 1) begin // row loop
             for (jj = 0; jj < N_SIZE; jj = jj + 1) begin // column loop
-                PE #(.DATAWIDTH(DATAWIDTH)) pe_inst(
+                PE #(
+                    .DATAWIDTH(DATAWIDTH),
+                    .DATAWIDTH_output(DATAWIDTH_output))
+                    pe_inst(
                     .clk(clk),
                     .rst_n(rst_n),
                     .wt_en(wt_en),

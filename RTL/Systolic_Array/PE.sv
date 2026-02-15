@@ -1,5 +1,6 @@
 module PE #(
-    parameter DATAWIDTH = 8
+    parameter DATAWIDTH = 8,
+    parameter DATAWIDTH_output = 32
 )(
     input  logic clk,
     input  logic rst_n,
@@ -8,9 +9,9 @@ module PE #(
 
     input  logic [(DATAWIDTH) - 1:0] wt,
     input  logic [(DATAWIDTH) - 1:0] in_A,
-    input  logic [(DATAWIDTH*4) - 1:0] in_B,
+    input  logic [DATAWIDTH_output-1:0] in_B,
 
-    output logic [(DATAWIDTH*4) - 1:0] out_D,
+    output logic [DATAWIDTH_output-1:0] out_D,
     output logic [(DATAWIDTH) - 1:0] out_R
 );
 
