@@ -21,7 +21,8 @@ module fetch_logic_gen #(
     output reg                          bram_en,             // Enable signal for the BRAM read port
 
     // Status Signal
-    output reg                          fetch_done           // Pulse high for one cycle when done
+    output reg                          fetch_done,           // Pulse high for one cycle when done
+    output reg                          busy                  // busy signal to indicate we are still fetching
 );
 
     // State Machine Definition
@@ -112,6 +113,7 @@ module fetch_logic_gen #(
             next_state = current_state;
             bram_en    = 1'b0;
             fetch_done = 1'b0;
+            busy       = 1'b0;
 
             // The address is the current pointer value (tile index) multiplied by
             // the number of reads per tile, plus the intra-tile offset.
@@ -134,6 +136,7 @@ module fetch_logic_gen #(
                       end
                 FETCHING: begin
                     bram_en = 1'b1;
+                    busy    = 1'b1;
                     if (fetch_offset == NUM_FETCHES_PER_TILE - 1) 
                         begin
                             next_state = DONE;
