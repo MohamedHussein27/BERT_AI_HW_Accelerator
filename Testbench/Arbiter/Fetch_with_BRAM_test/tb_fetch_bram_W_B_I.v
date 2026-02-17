@@ -17,6 +17,7 @@ module tb_fetch_bram_W_B_I;
     reg [31:0] dina;
 
     wire fetch_done;
+    wire busy;
     wire [DATA_WIDTH-1:0] doutb;
     wire [ADDR_WIDTH-1:0] addrb;
 
@@ -49,7 +50,8 @@ module tb_fetch_bram_W_B_I;
 
         .fetch_done(fetch_done),
         .doutb(doutb),
-        .addrb(addrb)
+        .addrb(addrb),
+        .busy(busy)
     );
 
     integer i = 0;
@@ -98,6 +100,7 @@ module tb_fetch_bram_W_B_I;
         Tiles_Control = 1'b0;   // tiling 512
         reset_addr_counter = 1; // to reset the counter
         repeat(2) @(negedge clk);
+        reset_addr_counter = 0;
         // fetch again
         $display("Starting fetch from input buffer...");
         start_fetch = 1;
@@ -107,10 +110,18 @@ module tb_fetch_bram_W_B_I;
         // Wait for fetch completion
         wait(fetch_done);
         $display("Fetching input buffer done at time %0t", $time);
-        repeat(2) @(negedge clk);
+        //repeat(2) @(negedge clk);
+        
         
         // fetch again
-        /*$display("Starting fetch...");
+        
+        // changing the buffer and no. of tiles
+        Buffer_Select = 3'b000; // choosing the weight buffer
+        Tiles_Control = 1'b1;   // tiling 32
+        reset_addr_counter = 1; // to reset the counter
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 0;
+        $display("Starting fetch from weight buffer...");
         start_fetch = 1;
         @(negedge clk);
         start_fetch = 0;
@@ -118,7 +129,24 @@ module tb_fetch_bram_W_B_I;
         // Wait for fetch completion
         wait(fetch_done);
         $display("Fetch done at time %0t", $time);
-        repeat(2) @(negedge clk);*/
+        
+        
+        // changing the buffer and no. of tiles
+        Buffer_Select = 3'b010; // choosing the input buffer
+        Tiles_Control = 1'b0;   // tiling 512
+        reset_addr_counter = 1; // to reset the counter
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 0;
+        $display("Starting fetch from input buffer...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+
+
+        // Wait for fetch completion
+        wait(fetch_done);
+        $display("Fetch done at time %0t", $time);
+        repeat(2) @(negedge clk);
         $stop;
     end
 endmodule
