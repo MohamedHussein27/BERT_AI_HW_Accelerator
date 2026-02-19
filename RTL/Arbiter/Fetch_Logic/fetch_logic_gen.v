@@ -35,12 +35,13 @@ module fetch_logic_gen #(
     reg [14:0] FETCH_START_OFFSET;
     wire [9:0] NUM_FETCHES_PER_TILE; // to choose how many fetchs we take in one tile
     
-    integer i = 0, j = 0;
+    integer i = 0, j = 0; // rows, columns
 
     // Internal Address Pointer
     // Pointer to track the next tile index to fetch.
     // The largest buffer might need 384 tiles, so 9 bits are needed.
-    reg [8:0] addr_ptr;
+    reg [9:0] addr_ptr;
+    reg [8:0] transpose_addr_pointer; // pointer used only in K matrix as we need to seperate the pointers
 
     // Internal Counter for fetch offset within a tile
     reg [9:0] fetch_offset;
@@ -50,9 +51,10 @@ module fetch_logic_gen #(
         begin
             if (!rst_n) 
                 begin
-                    current_state <= IDLE;
-                    fetch_offset <= 0;
-                    addr_ptr     <= 0;
+                    current_state          <= IDLE;
+                    fetch_offset           <= 0;
+                    addr_ptr               <= 0;
+                    transpose_addr_pointer <= 0;
                 end 
             else 
                 begin
@@ -71,10 +73,10 @@ module fetch_logic_gen #(
                                     j <= j + 1;
                                 end
                     end
-                    // this condition is to reset the i (row) counter and j (volumn) counter in case the tile is not finished and the rows have reached their max  
-                    else if (bram_addr == ((2 * FETCH_START_OFFSET) + addr_ptr)- ORIGINAL_COLUMNS && next_state != DONE && FETCH_START_OFFSET == ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH))
+                    // this condition is to reset the i (row) counter and j (column) counter in case the tile is not finished and the rows have reached their max  
+                    else if (bram_addr == ((2 * FETCH_START_OFFSET) + addr_ptr) - ORIGINAL_COLUMNS && FETCH_START_OFFSET == ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH))
                         begin
-                            addr_ptr <= addr_ptr + 1;
+                            transpose_addr_pointer <= transpose_addr_pointer + 1;
                             i <= 0;
                             j <= 0;
                         end
@@ -88,11 +90,13 @@ module fetch_logic_gen #(
                     if (reset_addr_counter) 
                         begin
                             addr_ptr <= 0;
+                            transpose_addr_pointer <= 0;
                         end
                 // Increment the pointer AFTER a fetch completes
-                    else if (current_state == DONE) 
+                    else if (current_state == DONE && Buffer_Select != 3'b011) // as not to incerement pointers after a Kt fetching ( 3'b011 is Q but we know that Q comes after Kt)
                         begin
-                            addr_ptr <= addr_ptr + 1;
+                            transpose_addr_pointer <= transpose_addr_pointer + 1;
+                            addr_ptr               <= addr_ptr + 1;
                         end
 
                 // Counter logic for fetches within a tile
@@ -124,7 +128,7 @@ module fetch_logic_gen #(
             
             else
                 begin
-                    bram_addr = ORIGINAL_COLUMNS * j + i + addr_ptr + FETCH_START_OFFSET;
+                    bram_addr = ORIGINAL_COLUMNS * j + i + transpose_addr_pointer + FETCH_START_OFFSET;
                 end
                          
             case (current_state)

@@ -72,9 +72,9 @@ module tb_fetch_bram_Q_K_V;
         repeat(5) @(negedge clk);
         rst_n = 1;
         ena = 1;
-        reset_addr_counter = 1;
+        //reset_addr_counter = 1;
         repeat(2) @(negedge clk);
-        reset_addr_counter = 0;
+        //reset_addr_counter = 0;
         // =====================
 
         // the writing should be done by the write logic
@@ -102,9 +102,9 @@ module tb_fetch_bram_Q_K_V;
         // changing the buffer and no. of tiles
         Buffer_Select = 3'b011; // choosing the Q buffer
         Tiles_Control = 1'b0;   // tiling 512
-        reset_addr_counter = 1; // to reset the counter
+        //reset_addr_counter = 1; // to reset the counter
         repeat(2) @(negedge clk);
-        reset_addr_counter = 0; // to reset the counter
+        //reset_addr_counter = 0; // to reset the counter
         // fetch again
         $display("Starting fetch from Q buffer...");
         start_fetch = 1;
@@ -157,9 +157,11 @@ module tb_fetch_bram_Q_K_V;
         // changing the buffer and no. of tiles
         Buffer_Select = 3'b101; // choosing the V buffer
         Tiles_Control = 1'b0;   // tiling 512
-        //reset_addr_counter = 1; // to reset the counter
+
+        reset_addr_counter = 1; // to reset the counter (we will reset here as we want to start from begining)
+        
         repeat(2) @(negedge clk);
-        //reset_addr_counter = 0; 
+        reset_addr_counter = 0; 
         // fetch again
         $display("Starting fetch from V buffer...");
         start_fetch = 1;
