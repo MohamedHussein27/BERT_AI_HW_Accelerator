@@ -30,6 +30,7 @@ module fetch_bram_Q_K_V_top #(
     // Outputs for monitoring
     // =====================
     output wire         fetch_done, // pulse when tile done
+    output wire         busy,
     output wire [DATA_WIDTH-1:0] doutb,      // data read from BRAM (Port B)
     output wire [ADDR_WIDTH-1:0]  addrb       // address used for read (for debug)
 );
@@ -60,7 +61,8 @@ module fetch_bram_Q_K_V_top #(
         .bram_addr(addrb),
         .bram_en(bram_en_b),
 
-        .fetch_done(fetch_done)
+        .fetch_done(fetch_done),
+        .busy(busy)
     );
 
     // =====================

@@ -17,6 +17,7 @@ module tb_fetch_bram_Q_K_V;
     reg [DATA_WIDTH-1:0] dina;
 
     wire fetch_done;
+    wire busy;
     wire [DATA_WIDTH-1:0] doutb;
     wire [ADDR_WIDTH-1:0] addrb;
     
@@ -50,7 +51,8 @@ module tb_fetch_bram_Q_K_V;
 
         .fetch_done(fetch_done),
         .doutb(doutb),
-        .addrb(addrb)
+        .addrb(addrb),
+        .busy(busy)
     );
     
     integer i = 0;
@@ -65,7 +67,7 @@ module tb_fetch_bram_Q_K_V;
         wea = 0;
         addra = 0;
         dina = 0;
-        Buffer_Select = 3'b100; // choosing the Q buffer
+        Buffer_Select = 3'b100; // choosing the K buffer as we will treat it like weights (will be the stationary part in SA)
         Tiles_Control = 1'b1;   // tiling 32
         repeat(5) @(negedge clk);
         rst_n = 1;
@@ -74,8 +76,10 @@ module tb_fetch_bram_Q_K_V;
         repeat(2) @(negedge clk);
         reset_addr_counter = 0;
         // =====================
+
+        // the writing should be done by the write logic
         $display("Writing BRAM...");
-        for (i = 0; i < 36864; i = i + 1) begin // filling BRAM ,,  4096 = 512 * 8, as write ports differ from the read port 
+        for (i = 0; i < 36864; i = i + 1) begin // filling BRAM ,,  512*768*8 / 256 (bus width) = 12288 for each buffer , as write ports differ from the read port 
             wea  = 1;
             dina = i * 2 + 2;     // deterministic pattern
             @(negedge clk);
@@ -100,6 +104,7 @@ module tb_fetch_bram_Q_K_V;
         Tiles_Control = 1'b0;   // tiling 512
         reset_addr_counter = 1; // to reset the counter
         repeat(2) @(negedge clk);
+        reset_addr_counter = 0; // to reset the counter
         // fetch again
         $display("Starting fetch from Q buffer...");
         start_fetch = 1;
@@ -108,7 +113,64 @@ module tb_fetch_bram_Q_K_V;
         
         //Wait for fetch completion
         wait(fetch_done);
-        $display("Fetch done at time %0t", $time);
+        $display("Fetching Q buffer done at time %0t", $time);
+
+
+
+
+        Buffer_Select = 3'b100; // choosing the K buffer again
+        Tiles_Control = 1'b1;   // tiling 32 as this is our weights if expression valids
+        
+        //reset_addr_counter = 1; // we dont reset the counter as to continue from were we stopped
+        
+        repeat(2) @(negedge clk);
+        //reset_addr_counter = 0; // to reset the counter
+        // fetch again
+        $display("Starting fetch from K buffer...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+        
+        //Wait for fetch completion
+        wait(fetch_done);
+        $display("Fetching K buffer done at time %0t", $time);
+
+
+
+        Buffer_Select = 3'b011; // choosing the Q buffer
+        Tiles_Control = 1'b0;   // tiling 512
+        //reset_addr_counter = 1; // to reset the counter
+        repeat(2) @(negedge clk);
+        //reset_addr_counter = 0; // to reset the counter
+        // fetch again
+        $display("Starting fetch from Q buffer...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+        
+        //Wait for fetch completion
+        wait(fetch_done);
+        $display("Fetching Q buffer done at time %0t", $time);
+
+
+
+        // changing the buffer and no. of tiles
+        Buffer_Select = 3'b101; // choosing the V buffer
+        Tiles_Control = 1'b0;   // tiling 512
+        //reset_addr_counter = 1; // to reset the counter
+        repeat(2) @(negedge clk);
+        //reset_addr_counter = 0; 
+        // fetch again
+        $display("Starting fetch from V buffer...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+        
+        //Wait for fetch completion
+        wait(fetch_done);
+        $display("Fetching V buffer done at time %0t", $time);
+
+
         repeat(2) @(negedge clk);
         $stop;
     end
