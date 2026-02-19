@@ -7,15 +7,15 @@ module PE #(
     input  logic wt_en,
     input  logic valid_in,
 
-    input  logic [(DATAWIDTH) - 1:0] wt,
-    input  logic [(DATAWIDTH) - 1:0] in_A,
-    input  logic [DATAWIDTH_output-1:0] in_B,
+    input  logic signed [(DATAWIDTH) - 1:0] wt,
+    input  logic signed [(DATAWIDTH) - 1:0] in_A,
+    input  logic signed [DATAWIDTH_output-1:0] in_B,
 
-    output logic [DATAWIDTH_output-1:0] out_D,
-    output logic [(DATAWIDTH) - 1:0] out_R
+    output logic signed [DATAWIDTH_output-1:0] out_D,
+    output logic signed [(DATAWIDTH) - 1:0] out_R
 );
 
-    logic [(DATAWIDTH) - 1:0] weight;
+    logic signed [(DATAWIDTH) - 1:0] weight;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

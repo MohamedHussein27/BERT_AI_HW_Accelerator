@@ -36,16 +36,16 @@ module systolic_top #(
     logic [ADDR_WIDTH-1:0] wr_addr;
     logic [$clog2(N_SIZE)-1:0] wt_row_sel;
 
-    logic [DATAWIDTH-1:0] in_A_wire [N_SIZE-1:0];
-    logic [(DATAWIDTH)-1:0] skew_out_wire[N_SIZE-1:0];
+    logic signed [DATAWIDTH-1:0] in_A_wire [N_SIZE-1:0];
+    logic signed [(DATAWIDTH)-1:0] skew_out_wire[N_SIZE-1:0];
 
-    logic [DATAWIDTH_output - 1:0] in_B_wire [N_SIZE-1:0];
-    logic [DATAWIDTH-1:0] wt_wire [N_SIZE-1:0];
+    logic signed [DATAWIDTH_output - 1:0] in_B_wire [N_SIZE-1:0];
+    logic signed [DATAWIDTH-1:0] wt_wire [N_SIZE-1:0];
 
     
-    logic [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_output;
-    logic [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_intput;
-    logic [DATAWIDTH_output-1:0] out_C_wire [N_SIZE-1:0];
+    logic signed [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_output;
+    logic signed [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_intput;
+    logic signed [DATAWIDTH_output-1:0] out_C_wire [N_SIZE-1:0];
 
 
     assign we_outbuffer_wire = (last_tile) ? we : 0; 
@@ -125,7 +125,8 @@ module systolic_top #(
         .ADDR_WIDTH(ADDR_WIDTH)
     ) partial_sum_buffer (
         .clk     (clk),
-        .we      (we),
+        .we      (we && (!last_tile)),
+        .rst_n   (rst_n),
         .rd_addr (rd_addr),
         .wr_addr (wr_addr),
         .in_data (interbuffer_intput), 
@@ -140,6 +141,7 @@ module systolic_top #(
     ) out_buffer (
         .clk     (clk),
         .we      (we_outbuffer_wire),
+        .rst_n   (rst_n),
         .rd_addr (rd_addr_outbuffer),
         .wr_addr (wr_addr),
         .in_data (interbuffer_intput),

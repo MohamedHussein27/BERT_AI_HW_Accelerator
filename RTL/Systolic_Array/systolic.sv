@@ -8,16 +8,16 @@ module systolic #(
     input logic rst_n,
     input logic wt_en,
     input logic valid_in,
-    input logic [(DATAWIDTH) - 1:0] matrix_A [N_SIZE-1:0],   
-    input logic [DATAWIDTH_output - 1:0] matrix_B [N_SIZE-1:0],
-    input logic [DATAWIDTH-1:0] wt_serial [N_SIZE-1:0],
+    input logic signed [(DATAWIDTH) - 1:0] matrix_A [N_SIZE-1:0],   
+    input logic signed [DATAWIDTH_output - 1:0] matrix_B [N_SIZE-1:0],
+    input logic signed [DATAWIDTH-1:0] wt_serial [N_SIZE-1:0],
     input logic [$clog2(N_SIZE)-1:0] wt_row_sel,
 
-    output logic [DATAWIDTH_output-1:0] matrix_C [N_SIZE-1:0]
+    output logic signed [DATAWIDTH_output-1:0] matrix_C [N_SIZE-1:0]
 );
     // used to pass the elements row wise and column wise
-    logic [DATAWIDTH-1:0] row_wire [0:N_SIZE][0:N_SIZE];
-    logic [DATAWIDTH_output-1:0] col_wire [0:N_SIZE][0:N_SIZE];
+    logic signed [DATAWIDTH-1:0] row_wire [0:N_SIZE][0:N_SIZE];
+    logic signed [DATAWIDTH_output-1:0] col_wire [0:N_SIZE][0:N_SIZE];
 
     logic wt_en_row [N_SIZE-1:0];
 
