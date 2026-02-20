@@ -15,7 +15,7 @@ module systolic_internal_buffer #(
 
     logic [(DATAWIDTH_output*N_SIZE)-1:0] mem [DEPTH-1:0];
 
-    always @(posedge clk or negedge rst_n) begin
+    always @(posedge clk) begin
             if (we) begin
                 mem[wr_addr] <= in_data;
             end
