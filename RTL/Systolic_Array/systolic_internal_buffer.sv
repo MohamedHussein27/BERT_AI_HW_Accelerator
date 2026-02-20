@@ -6,7 +6,6 @@ module systolic_internal_buffer #(
 ) (
     input logic clk,
     input logic we,
-    input logic rst_n,
     input logic [ADDR_WIDTH-1:0] rd_addr,
     input logic [ADDR_WIDTH-1:0] wr_addr,
     input logic [(DATAWIDTH_output*N_SIZE)-1:0] in_data,
@@ -17,14 +16,9 @@ module systolic_internal_buffer #(
     logic [(DATAWIDTH_output*N_SIZE)-1:0] mem [DEPTH-1:0];
 
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            out_data <= '0;
-        end
-        else begin
             if (we) begin
                 mem[wr_addr] <= in_data;
             end
             out_data <= mem[rd_addr];
-        end
     end
 endmodule

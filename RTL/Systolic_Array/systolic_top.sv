@@ -126,7 +126,6 @@ module systolic_top #(
     ) partial_sum_buffer (
         .clk     (clk),
         .we      (we && (!last_tile)),
-        .rst_n   (rst_n),
         .rd_addr (rd_addr),
         .wr_addr (wr_addr),
         .in_data (interbuffer_intput), 
@@ -141,7 +140,6 @@ module systolic_top #(
     ) out_buffer (
         .clk     (clk),
         .we      (we_outbuffer_wire),
-        .rst_n   (rst_n),
         .rd_addr (rd_addr_outbuffer),
         .wr_addr (wr_addr),
         .in_data (interbuffer_intput),

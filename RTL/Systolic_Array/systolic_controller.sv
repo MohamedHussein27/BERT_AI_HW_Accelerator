@@ -95,7 +95,7 @@ module systolic_controller #(
                 sys_wt_en = 1'b0;
                 rd_addr   = rd_addr_reg + 1;
                 wr_addr   = wr_addr_reg;
-                we   = (cycle_cnt >= N_SIZE-1) && (cycle_cnt <= num_of_raws + 2*N_SIZE - 2);
+                we   = (cycle_cnt >= N_SIZE-1) && (cycle_cnt < num_of_raws + 2*N_SIZE - 2);
                 done = (cycle_cnt == num_of_raws + 2*N_SIZE - 2);
                 busy  = 1'b1;
                 ready = 1'b0;
