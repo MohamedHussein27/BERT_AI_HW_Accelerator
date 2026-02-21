@@ -9,7 +9,7 @@ module tb_fetch_bram_Q_K_V;
     parameter CLK_PERIOD           = 10 ;
     
     reg clk, rst_n;
-    reg start_fetch, reset_addr_counter;
+    reg start_fetch, reset_addr_counter, Double_buffering;
     reg [2:0] Buffer_Select;
     reg Tiles_Control;
     reg ena, wea;
@@ -43,7 +43,8 @@ module tb_fetch_bram_Q_K_V;
         .reset_addr_counter(reset_addr_counter),
         .Buffer_Select(Buffer_Select),
         .Tiles_Control(Tiles_Control),
-        
+        .Double_buffering(Double_buffering),
+
         .wea(wea),
         .ena(ena),
         .addra(addra),
@@ -63,6 +64,7 @@ module tb_fetch_bram_Q_K_V;
         rst_n = 0;
         start_fetch = 0;
         reset_addr_counter = 0;
+        Double_buffering = 1'b0;
         ena = 0;
         wea = 0;
         addra = 0;

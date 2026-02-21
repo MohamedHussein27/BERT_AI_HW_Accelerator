@@ -17,6 +17,7 @@ module fetch_bram_Q_K_V_top #(
     input  wire         reset_addr_counter,
     input  wire [2:0]   Buffer_Select,
     input  wire         Tiles_Control,
+    input  wire         Double_buffering,
 
     // =====================
     // Write-side (Port A) inputs to preload BRAM
@@ -57,6 +58,7 @@ module fetch_bram_Q_K_V_top #(
         .reset_addr_counter(reset_addr_counter),
         .Buffer_Select(Buffer_Select),
         .Tiles_Control(Tiles_Control),
+        .Double_buffering(Double_buffering),
 
         .bram_addr(addrb),
         .bram_en(bram_en_b),

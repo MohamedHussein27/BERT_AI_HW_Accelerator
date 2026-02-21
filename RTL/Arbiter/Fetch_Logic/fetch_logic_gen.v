@@ -15,6 +15,7 @@ module fetch_logic_gen #(
     input  wire                         reset_addr_counter,  // Pulse to reset the internal address pointer
     input  wire [2:0]                   Buffer_Select,       // control signal to choose which buffer we are reading from, you will find it at the end of the code
     input  wire                         Tiles_Control,       // control signal to choose how many reads we will do, if weights so we will tile 32 times, if inputs we will tile 512 times
+    input  wire                         Double_buffering,    // control signal to make us read from the double buffering addresses in weights and inputs 
 
     // BRAM Interface
     output reg  [ADDR_WIDTH-1:0]        bram_addr,           // Address sent to the BRAM
@@ -161,9 +162,9 @@ module fetch_logic_gen #(
         always @(*) 
             begin
                 case (Buffer_Select)
-                    3'b000 : FETCH_START_OFFSET = 'd0;                                                       // W_buffer
+                    3'b000 : FETCH_START_OFFSET = (Double_buffering) ? 'd0 + 32  :  0;                       // W_buffer, double buffering address begins at 624
                     3'b001 : FETCH_START_OFFSET = 64;                                                        // b_buffer
-                    3'b010 : FETCH_START_OFFSET = 112;                                                       // I_buffer as input buffer has a starting addtress of 112 in our BRAM 
+                    3'b010 : FETCH_START_OFFSET = (Double_buffering) ? 112 + 512 : 112;                      // I_buffer as input buffer has a starting addtress of 112 in our BRAM 
                     3'b011 : FETCH_START_OFFSET = 'd0;                                                       // Q_buffer
                     3'b100 : FETCH_START_OFFSET = ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH);    // K_buffer
                     3'b101 : FETCH_START_OFFSET = 2*((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH);  // V_buffer

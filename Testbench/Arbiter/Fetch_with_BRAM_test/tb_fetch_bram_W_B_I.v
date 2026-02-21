@@ -9,7 +9,7 @@ module tb_fetch_bram_W_B_I;
     parameter CLK_PERIOD           = 10 ;
     
     reg clk, rst_n;
-    reg start_fetch, reset_addr_counter;
+    reg start_fetch, reset_addr_counter, Double_buffering;
     reg [2:0] Buffer_Select;
     reg Tiles_Control;
     reg ena, wea;
@@ -42,6 +42,7 @@ module tb_fetch_bram_W_B_I;
         .reset_addr_counter(reset_addr_counter),
         .Buffer_Select(Buffer_Select),
         .Tiles_Control(Tiles_Control),
+        .Double_buffering(Double_buffering),
 
         .wea(wea),
         .ena(ena),
@@ -68,6 +69,7 @@ module tb_fetch_bram_W_B_I;
         dina = 0;
         Buffer_Select = 3'b000; // choosing the weight buffer
         Tiles_Control = 1'b1;   // tiling 32
+        Double_buffering = 0;    // tile from normal address
         repeat(5) @(negedge clk);
         rst_n = 1;
         ena = 1;
@@ -146,6 +148,49 @@ module tb_fetch_bram_W_B_I;
         // Wait for fetch completion
         wait(fetch_done);
         $display("Fetch done at time %0t", $time);
+
+
+
+
+        //*************** testing double buffering ***************************\\
+
+        // double buffering from weights
+
+        Double_buffering = 1'b1;
+        Buffer_Select = 3'b000; // choosing the weight buffer
+        Tiles_Control = 1'b1;   // tiling 32
+        
+        reset_addr_counter = 1; // to reset the counter
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 0;
+        $display("Starting fetch from weight buffer...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+
+        // Wait for fetch completion
+        wait(fetch_done);
+        $display("Fetch done at time %0t", $time);
+
+
+        // double buffering from inputs
+
+        Buffer_Select = 3'b010; // choosing the input buffer
+        Tiles_Control = 1'b0;   // tiling 512
+        reset_addr_counter = 1; // to reset the counter
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 0;
+        $display("Starting fetch from input buffer...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+
+
+        // Wait for fetch completion
+        wait(fetch_done);
+        $display("Fetch done at time %0t", $time);
+
+
         repeat(2) @(negedge clk);
         $stop;
     end
