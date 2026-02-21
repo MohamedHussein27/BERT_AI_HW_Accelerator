@@ -13,7 +13,7 @@ module fetch_logic_gen #(
     // Control Signals
     input  wire                         start_fetch,         // Pulse to begin fetching the next tile
     input  wire                         reset_addr_counter,  // Pulse to reset the internal address pointer
-    input  wire [2:0]                   Buffer_Select,       // control signal to choose which buffer we are reading from, you will find it at the end of the code
+    input  wire [3:0]                   Buffer_Select,       // control signal to choose which buffer we are reading from, you will find it at the end of the code
     input  wire                         Tiles_Control,       // control signal to choose how many reads we will do, if weights so we will tile 32 times, if inputs we will tile 512 times
     input  wire                         Double_buffering,    // control signal to make us read from the double buffering addresses in weights and inputs 
 
@@ -159,18 +159,61 @@ module fetch_logic_gen #(
             endcase
         end
         // always block to choose from which address will we start
-        always @(*) 
-            begin
-                case (Buffer_Select)
-                    3'b000 : FETCH_START_OFFSET = (Double_buffering) ? 'd0 + 32  :  0;                       // W_buffer, double buffering address begins at 624
-                    3'b001 : FETCH_START_OFFSET = 64;                                                        // b_buffer
-                    3'b010 : FETCH_START_OFFSET = (Double_buffering) ? 112 + 512 : 112;                      // I_buffer as input buffer has a starting addtress of 112 in our BRAM 
-                    3'b011 : FETCH_START_OFFSET = 'd0;                                                       // Q_buffer
-                    3'b100 : FETCH_START_OFFSET = ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH);    // K_buffer
-                    3'b101 : FETCH_START_OFFSET = 2*((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH);  // V_buffer
-                    default : FETCH_START_OFFSET = 'd0;
-                endcase
-            end
+        always @(*) begin
+            case (Buffer_Select)
+
+                // =====================================================
+                // ================= ATTENTION BUFFERS =================
+                // =====================================================
+
+                4'b0000 : FETCH_START_OFFSET = 
+                            (Double_buffering) ? 16'd32 : 16'd0;    // W
+
+                4'b0001 : FETCH_START_OFFSET = 16'd64;              // b
+
+                4'b0010 : FETCH_START_OFFSET = 
+                            (Double_buffering) ? 16'd624 : 16'd112;  // I
+
+                4'b0011 : FETCH_START_OFFSET = 16'd0;               // Q
+
+                4'b0100 : FETCH_START_OFFSET = 
+                    ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH); // K
+
+                4'b0101 : FETCH_START_OFFSET = 
+                    2*((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH); // V
+
+                4'b0110 : FETCH_START_OFFSET = 16'd8192;            // kTQ
+
+                4'b0111 : FETCH_START_OFFSET = 16'd20480;           // SV
+
+                4'b1000 : FETCH_START_OFFSET = 16'd28672;           // H
+
+
+                // =====================================================
+                // ==================== FFN BUFFERS ====================
+                // =====================================================
+
+                // FFN Weights (double buffering ONLY here)
+                4'b1001 : FETCH_START_OFFSET =
+                            (Double_buffering) ? 16'd32 : 16'd0;
+
+                // FFN Bias
+                4'b1010 : FETCH_START_OFFSET = 16'd64;
+
+                // FFN Input
+                4'b1011 : FETCH_START_OFFSET = 16'd160;
+
+                // FFN Intermediate
+                4'b1100 : FETCH_START_OFFSET = 16'd0;
+
+                // Output Buffer (O_buffer)
+                4'b1101 : FETCH_START_OFFSET = 16'd49152;
+
+                default : FETCH_START_OFFSET = 16'd0;
+
+            endcase
+        end
+
         // if we are fetching weights, NUM_FETCHES_PER_TILE will be 32, if inputs NUM_FETCHES_PER_TILE will be 512
         assign NUM_FETCHES_PER_TILE = Tiles_Control ? 10'd32 : 10'd512;
 endmodule
