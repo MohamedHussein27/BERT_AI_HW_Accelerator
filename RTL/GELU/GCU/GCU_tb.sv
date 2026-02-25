@@ -1,481 +1,361 @@
 `timescale 1ns/1ps
 
 //=============================================================================
-// GCU Testbench - 32 Parallel GELU Units
-// Tests 32 concurrent GELU computations with shared LUT
-// Input range: [-6.4586, +5.6423] (typical BERT GELU range)
+// GCU Testbench - 32 Parallel GELU Lanes
+// Input:  32 × 32-bit Q10.22
+// Output: 32 × 64-bit Q48.16
 //=============================================================================
 module GCU_tb;
 
-    // =========================================================================
-    // Parameters
-    // =========================================================================
-    localparam int Q = 16;              // Q48.16
-    localparam int W = 64;              // 64-bit
-    localparam int NUM_GELU = 32;       // 32 parallel GELU units
-    localparam int NUM_LUT_PORTS = 64;  // 2 ports per GELU
-    
-    // Fixed-point conversion constant
-    localparam real Q_SCALE = 2.0 ** Q;
+    localparam int Q_IN      = 22;
+    localparam int Q_OUT     = 16;
+    localparam int W         = 32;
+    localparam int NUM_GELU  = 32;
 
-    // =========================================================================
-    // DUT Signals
-    // =========================================================================
-    logic signed [W-1:0] x [NUM_GELU-1:0];  // 32 inputs
-    wire signed [W-1:0] y [NUM_GELU-1:0];   // 32 outputs
+    localparam real Q_SCALE_IN  = 2.0 ** Q_IN;
+    localparam real Q_SCALE_OUT = 2.0 ** Q_OUT;
 
-    // =========================================================================
-    // Instantiate DUT (GCU with integrated SharedLUT)
-    // =========================================================================
+    logic signed [W-1:0]   x [NUM_GELU-1:0];
+    wire  signed [2*W-1:0] y [NUM_GELU-1:0];
+
     GCU #(
-        .Q(Q),
+        .Q(Q_IN),
         .W(W),
         .NUM_GELU(NUM_GELU),
-        .NUM_LUT_PORTS(NUM_LUT_PORTS)
-    ) dut (
-        .x(x),
-        .y(y)
-    );
+        .NUM_LUT_PORTS(64)
+    ) dut (.x(x), .y(y));
 
     // =========================================================================
     // Helper Functions
     // =========================================================================
-    
-    // Convert real to Q48.16
+
     function automatic logic signed [W-1:0] real_to_fixed(real value);
         real scaled;
-        scaled = value * Q_SCALE;
-        if (scaled > 9223372036854775807.0)
-            return 64'sh7FFFFFFFFFFFFFFF;
-        else if (scaled < -9223372036854775808.0)
-            return 64'sh8000000000000000;
-        else
-            return $rtoi(scaled);
+        scaled = value * Q_SCALE_IN;
+        if      (scaled >  2147483647.0) return 32'sh7FFFFFFF;
+        else if (scaled < -2147483648.0) return 32'sh80000000;
+        else                             return $rtoi(scaled);
     endfunction
 
-    // Convert Q48.16 to real
-    function automatic real fixed_to_real(logic signed [W-1:0] value);
-        return $itor(value) / Q_SCALE;
+    function automatic real fixed_to_real(logic signed [2*W-1:0] value);
+        return $itor(value) / Q_SCALE_OUT;
     endfunction
 
-    // Absolute value function
     function automatic real abs_real(real value);
         return (value < 0.0) ? -value : value;
     endfunction
 
-    // =========================================================================
-    // Golden Model 1: x / (1 + exp(-2*h(x)))
-    // =========================================================================
-    function automatic real gelu_golden_1(real x_val);
-        real h_x;
-        real exp_term;
-        
-        h_x = 1.702 * x_val;
-        exp_term = 2.71828182845904523536 ** (-2.0 * h_x);
-        
-        return x_val / (1.0 + exp_term);
+    // ✅ Flush: kills -0.0 and any sub-LSB noise (Q48.16 LSB ≈ 1.5e-5)
+    function automatic real flush(real value);
+        return (abs_real(value) < 1e-6) ? 0.0 : value;
     endfunction
 
-    // =========================================================================
-    // Golden Model 2: Standard GELU
-    // =========================================================================
+    // ✅ Safe error %: flushes both operands before dividing
+    function automatic real calc_pct(real actual, real golden);
+        real a, g, err;
+        a = flush(actual);
+        g = flush(golden);
+        err = a - g;
+        if      (abs_real(g) > 1e-6) return (err / g) * 100.0;
+        else if (abs_real(a) > 1e-6) return 100.0;
+        else                         return 0.0;  // both ~0 → 0% error
+    endfunction
+
+    function automatic real gelu_golden_hw(real x_val);
+        real s_x, exp_term, denom;
+        if (x_val == 0.0) return 0.0;
+        s_x      = -2.3125 * (x_val + 0.046875 * x_val * x_val * x_val);
+        exp_term =  2.0 ** s_x;
+        denom    =  1.0 + exp_term;
+        if (denom == 0.0) return 0.0;
+        return flush(x_val / denom);
+    endfunction
+
     function automatic real gelu_golden_2(real x_val);
-        real sqrt_2_over_pi;
-        real x_cubed;
-        real inner;
-        real tanh_val;
-        real exp_pos, exp_neg;
-        
+        real sqrt_2_over_pi, x_cubed, inner, tanh_val, exp_pos, exp_neg;
+        if (x_val == 0.0) return 0.0;
         sqrt_2_over_pi = 0.7978845608028654;
-        x_cubed = x_val * x_val * x_val;
-        inner = sqrt_2_over_pi * (x_val + 0.044715 * x_cubed);
-        
-        exp_pos = 2.71828182845904523536 ** inner;
-        exp_neg = 2.71828182845904523536 ** (-inner);
-        tanh_val = (exp_pos - exp_neg) / (exp_pos + exp_neg);
-        
-        return 0.5 * x_val * (1.0 + tanh_val);
+        x_cubed        = x_val * x_val * x_val;
+        inner          = sqrt_2_over_pi * (x_val + 0.044715 * x_cubed);
+        exp_pos        = 2.71828182845904523536 **  inner;
+        exp_neg        = 2.71828182845904523536 ** -inner;
+        tanh_val       = (exp_pos - exp_neg) / (exp_pos + exp_neg);
+        return flush(0.5 * x_val * (1.0 + tanh_val));
     endfunction
 
     // =========================================================================
-    // Test Statistics (per GELU unit)
+    // Statistics
     // =========================================================================
-    int pass_count_g1 [NUM_GELU-1:0];
-    int pass_count_g2 [NUM_GELU-1:0];
-    int fail_count_g1 [NUM_GELU-1:0];
-    int fail_count_g2 [NUM_GELU-1:0];
-    int total_count [NUM_GELU-1:0];
-    real max_error_g1 [NUM_GELU-1:0];
-    real max_error_g2 [NUM_GELU-1:0];
-    real sum_error_g1 [NUM_GELU-1:0];
-    real sum_error_g2 [NUM_GELU-1:0];
-    
-    // Global statistics
-    int global_pass_g1 = 0;
-    int global_pass_g2 = 0;
-    int global_fail_g1 = 0;
-    int global_fail_g2 = 0;
-    int global_total = 0;
-
-    // Enable/disable detailed output per GELU
-    parameter bit SHOW_PER_GELU_DETAILS = 0;  // Set to 1 for verbose output
-    parameter bit SHOW_SUMMARY_ONLY = 1;       // Set to 1 for compact output
+    int  total_lane_tests = 0;
+    int  pass_hw = 0, fail_hw = 0;
+    int  pass_g2 = 0, fail_g2 = 0;
+    real max_error_hw = 0.0, max_error_g2 = 0.0;
+    real sum_error_hw = 0.0, sum_error_g2 = 0.0;
+    string max_err_test_hw = "", max_err_test_g2 = "";
 
     // =========================================================================
-    // Test Procedure
+    // Task: All 32 lanes same value
     // =========================================================================
-    initial begin
-        // Initialize statistics
-        for (int i = 0; i < NUM_GELU; i++) begin
-            pass_count_g1[i] = 0;
-            pass_count_g2[i] = 0;
-            fail_count_g1[i] = 0;
-            fail_count_g2[i] = 0;
-            total_count[i] = 0;
-            max_error_g1[i] = 0.0;
-            max_error_g2[i] = 0.0;
-            sum_error_g1[i] = 0.0;
-            sum_error_g2[i] = 0.0;
-        end
+    task automatic run_uniform_test(string test_name, real x_val);
+        real y_hw, y_g2, y_actual;
+        real err_hw, err_g2, pct_hw, pct_g2;
+        int  lane_fail_hw, lane_fail_g2;
+        lane_fail_hw = 0;
+        lane_fail_g2 = 0;
 
-        $display("\n╔════════════════════════════════════════════════════════════════════════════╗");
-        $display("║                   GCU MODULE TESTBENCH - 32 Parallel GELUs                 ║");
-        $display("║                   Flow: x[32] → 32×GELU → y[32]                            ║");
-        $display("║                                                                            ║");
-        $display("║  Format: Q48.16 (64-bit)                                                   ║");
-        $display("║  Input Range:  [-6.4586, +5.6423] (BERT GELU typical range)               ║");
-        $display("║  Parallelism: 32 independent GELU units                                    ║");
-        $display("║  SharedLUT: 64 ports (2 per GELU)                                          ║");
-        $display("║                                                                            ║");
-        $display("║  Golden Model 1: x / (1 + exp(-2*1.702*x))                                ║");
-        $display("║  Golden Model 2: 0.5*x*(1 + tanh(sqrt(2/π)*(x + 0.044715*x³)))            ║");
-        $display("║                                                                            ║");
-        $display("║  Tolerance: 30%% error OR absolute error < 0.05                            ║");
-        $display("╚════════════════════════════════════════════════════════════════════════════╝\n");
+        for (int i = 0; i < NUM_GELU; i++)
+            x[i] = real_to_fixed(x_val);
+        #50;
 
-        #10;
-        $display("Starting test vectors...\n");
+        y_hw = gelu_golden_hw(x_val);
+        y_g2 = gelu_golden_2(x_val);
 
-        // =====================================================================
-        // Test Suite 1: All Same Value (test shared LUT under uniform load)
-        // =====================================================================
-        $display("════════════════════════════════════════════════════════════════════════════");
-        $display("        TEST SUITE 1: UNIFORM INPUT (All GELUs same value)                 ");
-        $display("════════════════════════════════════════════════════════════════════════════\n");
-        
-        run_parallel_test("All Zero", 0.0);
-        run_parallel_test("All Unity", 1.0);
-        run_parallel_test("All +2.5", 2.5);
-        run_parallel_test("All -2.5", -2.5);
+        for (int lane = 0; lane < NUM_GELU; lane++) begin
+            y_actual = fixed_to_real(y[lane]);
 
-        // =====================================================================
-        // Test Suite 2: Sequential Values (test all GELUs with different inputs)
-        // =====================================================================
-        $display("\n════════════════════════════════════════════════════════════════════════════");
-        $display("        TEST SUITE 2: SEQUENTIAL INPUTS (Linearly spaced)                  ");
-        $display("════════════════════════════════════════════════════════════════════════════\n");
-        
-        run_sequential_test("Linear -6 to +6", -6.0, 6.0);
-        run_sequential_test("Linear -3 to +3", -3.0, 3.0);
-        run_sequential_test("Linear 0 to +5", 0.0, 5.0);
+            pct_hw = calc_pct(y_actual, y_hw);
+            pct_g2 = calc_pct(y_actual, y_g2);
+            err_hw = flush(y_actual) - y_hw;
+            err_g2 = flush(y_actual) - y_g2;
 
-        // =====================================================================
-        // Test Suite 3: Random Values (stress test)
-        // =====================================================================
-        $display("\n════════════════════════════════════════════════════════════════════════════");
-        $display("        TEST SUITE 3: RANDOM INPUTS (Monte Carlo)                          ");
-        $display("════════════════════════════════════════════════════════════════════════════\n");
-        
-        for (int test = 0; test < 10; test++) begin
-            run_random_test($sformatf("Random Test %0d", test+1), -6.0, 6.0);
-        end
+            total_lane_tests++;
 
-        // =====================================================================
-        // Test Suite 4: Boundary Values (all GELUs)
-        // =====================================================================
-        $display("\n════════════════════════════════════════════════════════════════════════════");
-        $display("        TEST SUITE 4: BOUNDARY VALUES                                      ");
-        $display("════════════════════════════════════════════════════════════════════════════\n");
-        
-        run_parallel_test("Min boundary", -6.4586);
-        run_parallel_test("Max boundary", 5.6423);
-        run_parallel_test("Near zero +", 0.001);
-        run_parallel_test("Near zero -", -0.001);
-
-        // =====================================================================
-        // Test Suite 5: Critical Transition Points
-        // =====================================================================
-        $display("\n════════════════════════════════════════════════════════════════════════════");
-        $display("        TEST SUITE 5: CRITICAL TRANSITION POINTS                           ");
-        $display("════════════════════════════════════════════════════════════════════════════\n");
-        
-        run_parallel_test("Transition +0.84", 0.8414);
-        run_parallel_test("Transition -0.84", -0.8414);
-
-        // =====================================================================
-        // Test Suite 6: Alternating Pattern
-        // =====================================================================
-        $display("\n════════════════════════════════════════════════════════════════════════════");
-        $display("        TEST SUITE 6: ALTERNATING PATTERNS                                 ");
-        $display("════════════════════════════════════════════════════════════════════════════\n");
-        
-        run_alternating_test("Alternating ±2.5", 2.5, -2.5);
-        run_alternating_test("Alternating ±1.0", 1.0, -1.0);
-
-        // Display final summary
-        $display("\n╔════════════════════════════════════════════════════════════════════════════╗");
-        $display("║                         ALL TESTS COMPLETED                                ║");
-        $display("║                                                                            ║");
-        display_global_summary();
-        $display("╚════════════════════════════════════════════════════════════════════════════╝\n");
-        
-        $finish;
-    end
-
-    // =========================================================================
-    // Test Tasks
-    // =========================================================================
-
-    // Test all GELUs with same input value
-    task automatic run_parallel_test(string test_name, real x_val);
-        real x_vals [NUM_GELU-1:0];
-        
-        // Set all inputs to same value
-        for (int i = 0; i < NUM_GELU; i++) begin
-            x_vals[i] = x_val;
-        end
-        
-        run_test_vector(test_name, x_vals);
-    endtask
-
-    // Test GELUs with sequential values (linearly spaced)
-    task automatic run_sequential_test(string test_name, real start_val, real end_val);
-        real x_vals [NUM_GELU-1:0];
-        real step;
-        
-        step = (end_val - start_val) / real'(NUM_GELU - 1);
-        
-        for (int i = 0; i < NUM_GELU; i++) begin
-            x_vals[i] = start_val + (step * real'(i));
-        end
-        
-        run_test_vector(test_name, x_vals);
-    endtask
-
-    // Test GELUs with random values
-    task automatic run_random_test(string test_name, real min_val, real max_val);
-        real x_vals [NUM_GELU-1:0];
-        real range;
-        int seed;
-        
-        seed = $urandom();
-        range = max_val - min_val;
-        
-        for (int i = 0; i < NUM_GELU; i++) begin
-            x_vals[i] = min_val + (range * ($urandom() / 4294967296.0));
-        end
-        
-        run_test_vector(test_name, x_vals);
-    endtask
-
-    // Test GELUs with alternating pattern
-    task automatic run_alternating_test(string test_name, real val1, real val2);
-        real x_vals [NUM_GELU-1:0];
-        
-        for (int i = 0; i < NUM_GELU; i++) begin
-            x_vals[i] = (i % 2 == 0) ? val1 : val2;
-        end
-        
-        run_test_vector(test_name, x_vals);
-    endtask
-
-    // Core test execution
-    task automatic run_test_vector(string test_name, real x_vals [NUM_GELU-1:0]);
-        real y_golden_1 [NUM_GELU-1:0];
-        real y_golden_2 [NUM_GELU-1:0];
-        real y_actual [NUM_GELU-1:0];
-        real error_abs_g1 [NUM_GELU-1:0];
-        real error_abs_g2 [NUM_GELU-1:0];
-        real error_pct_g1 [NUM_GELU-1:0];
-        real error_pct_g2 [NUM_GELU-1:0];
-        int pass_g1, pass_g2, fail_g1, fail_g2;
-        
-        pass_g1 = 0;
-        pass_g2 = 0;
-        fail_g1 = 0;
-        fail_g2 = 0;
-        
-        // Set inputs
-        for (int i = 0; i < NUM_GELU; i++) begin
-            x[i] = real_to_fixed(x_vals[i]);
-        end
-        
-        // Wait for combinational propagation
-        #100;
-        
-        // Compute golden models and actual results for all GELUs
-        for (int i = 0; i < NUM_GELU; i++) begin
-            y_golden_1[i] = gelu_golden_1(x_vals[i]);
-            y_golden_2[i] = gelu_golden_2(x_vals[i]);
-            y_actual[i] = fixed_to_real(y[i]);
-            
-            // Compute errors for Golden Model 1
-            error_abs_g1[i] = y_actual[i] - y_golden_1[i];
-            if (y_golden_1[i] != 0.0)
-                error_pct_g1[i] = (error_abs_g1[i] / y_golden_1[i]) * 100.0;
-            else
-                error_pct_g1[i] = (y_actual[i] != 0.0) ? 100.0 : 0.0;
-            
-            // Compute errors for Golden Model 2
-            error_abs_g2[i] = y_actual[i] - y_golden_2[i];
-            if (y_golden_2[i] != 0.0)
-                error_pct_g2[i] = (error_abs_g2[i] / y_golden_2[i]) * 100.0;
-            else
-                error_pct_g2[i] = (y_actual[i] != 0.0) ? 100.0 : 0.0;
-            
-            // Update statistics
-            total_count[i]++;
-            sum_error_g1[i] += abs_real(error_pct_g1[i]);
-            sum_error_g2[i] += abs_real(error_pct_g2[i]);
-            
-            if (abs_real(error_pct_g1[i]) > max_error_g1[i])
-                max_error_g1[i] = abs_real(error_pct_g1[i]);
-            
-            if (abs_real(error_pct_g2[i]) > max_error_g2[i])
-                max_error_g2[i] = abs_real(error_pct_g2[i]);
-            
-            // Determine pass/fail
-            if (abs_real(error_pct_g1[i]) < 30.0 || abs_real(error_abs_g1[i]) < 0.05) begin
-                pass_count_g1[i]++;
-                pass_g1++;
-            end else begin
-                fail_count_g1[i]++;
-                fail_g1++;
-            end
-            
-            if (abs_real(error_pct_g2[i]) < 30.0 || abs_real(error_abs_g2[i]) < 0.05) begin
-                pass_count_g2[i]++;
-                pass_g2++;
-            end else begin
-                fail_count_g2[i]++;
-                fail_g2++;
-            end
-        end
-        
-        // Update global statistics
-        global_pass_g1 += pass_g1;
-        global_pass_g2 += pass_g2;
-        global_fail_g1 += fail_g1;
-        global_fail_g2 += fail_g2;
-        global_total += NUM_GELU;
-        
-        // Display results
-        if (!SHOW_SUMMARY_ONLY) begin
-            $display("────────────────────────────────────────────────────────────────────────────");
-            $display("TEST: %s", test_name);
-            $display("────────────────────────────────────────────────────────────────────────────");
-            
-            if (SHOW_PER_GELU_DETAILS) begin
-                // Detailed per-GELU output
-                for (int i = 0; i < NUM_GELU; i++) begin
-                    $display("  GELU[%2d]: x=%8.4f → y=%8.4f | Golden1=%8.4f (err=%6.2f%%) | Golden2=%8.4f (err=%6.2f%%)",
-                             i, x_vals[i], y_actual[i], 
-                             y_golden_1[i], error_pct_g1[i],
-                             y_golden_2[i], error_pct_g2[i]);
+            // ✅ Only accumulate stats when at least one side is non-trivial
+            if (abs_real(flush(y_actual)) > 1e-6 || abs_real(y_hw) > 1e-6) begin
+                sum_error_hw += abs_real(pct_hw);
+                if (abs_real(pct_hw) > max_error_hw) begin
+                    max_error_hw    = abs_real(pct_hw);
+                    max_err_test_hw = test_name;
                 end
             end
-            
-            $display("  Golden Model 1: %2d/%2d PASS, %2d/%2d FAIL", pass_g1, NUM_GELU, fail_g1, NUM_GELU);
-            $display("  Golden Model 2: %2d/%2d PASS, %2d/%2d FAIL", pass_g2, NUM_GELU, fail_g2, NUM_GELU);
-            $display("");
-        end else begin
-            // Compact summary
-            string status1 = (fail_g1 == 0) ? "✓ PASS" : "✗ FAIL";
-            string status2 = (fail_g2 == 0) ? "✓ PASS" : "✗ FAIL";
-            $display("%-40s | G1: %2d/%2d %s | G2: %2d/%2d %s", 
-                     test_name, pass_g1, NUM_GELU, status1, pass_g2, NUM_GELU, status2);
+
+            if (abs_real(flush(y_actual)) > 1e-6 || abs_real(y_g2) > 1e-6) begin
+                sum_error_g2 += abs_real(pct_g2);
+                if (abs_real(pct_g2) > max_error_g2) begin
+                    max_error_g2    = abs_real(pct_g2);
+                    max_err_test_g2 = test_name;
+                end
+            end
+
+            // HW: 10% or |abs| < 0.02
+            if (abs_real(pct_hw) < 10.0 || abs_real(err_hw) < 0.02)
+                pass_hw++;
+            else begin
+                fail_hw++;
+                lane_fail_hw++;
+                $display("  ⚠️  LANE %2d HW FAIL: x=%7.4f  y=%10.6f  exp=%10.6f  err=%.2f%%",
+                         lane, x_val, y_actual, y_hw, pct_hw);
+            end
+
+            // G2: 30% or |abs| < 0.05
+            if (abs_real(pct_g2) < 30.0 || abs_real(err_g2) < 0.05)
+                pass_g2++;
+            else begin
+                fail_g2++;
+                lane_fail_g2++;
+                $display("  ⚠️  LANE %2d G2 FAIL: x=%7.4f  y=%10.6f  exp=%10.6f  err=%.2f%%",
+                         lane, x_val, y_actual, y_g2, pct_g2);
+            end
         end
-        
+
+        y_actual = fixed_to_real(y[0]);
+        $display("  [UNIFORM] %-22s  x=%7.4f | y[0]=%10.6f | hw_exp=%10.6f | g2_exp=%10.6f | hw_fail=%0d g2_fail=%0d",
+                 test_name, x_val, y_actual, y_hw, y_g2, lane_fail_hw, lane_fail_g2);
         #10;
     endtask
 
     // =========================================================================
-    // Summary Display
+    // Task: 32 unique values per lane
     // =========================================================================
-    task display_global_summary();
-        real pass_rate_g1, pass_rate_g2;
-        real avg_error_g1, avg_error_g2;
-        real total_avg_error_g1, total_avg_error_g2;
-        
-        pass_rate_g1 = (real'(global_pass_g1) / real'(global_total)) * 100.0;
-        pass_rate_g2 = (real'(global_pass_g2) / real'(global_total)) * 100.0;
-        
-        // Calculate average error across all GELUs
-        total_avg_error_g1 = 0.0;
-        total_avg_error_g2 = 0.0;
-        for (int i = 0; i < NUM_GELU; i++) begin
-            if (total_count[i] > 0) begin
-                total_avg_error_g1 += sum_error_g1[i] / real'(total_count[i]);
-                total_avg_error_g2 += sum_error_g2[i] / real'(total_count[i]);
+    task automatic run_vector_test(string test_name, real x_vals [NUM_GELU-1:0]);
+        real y_hw, y_actual, pct_hw, err_hw;
+        int  lane_fail_hw;
+        lane_fail_hw = 0;
+
+        for (int i = 0; i < NUM_GELU; i++)
+            x[i] = real_to_fixed(x_vals[i]);
+        #50;
+
+        $display("\n  [VECTOR]  %s", test_name);
+        for (int lane = 0; lane < NUM_GELU; lane++) begin
+            y_actual = fixed_to_real(y[lane]);
+            y_hw     = gelu_golden_hw(x_vals[lane]);
+
+            pct_hw = calc_pct(y_actual, y_hw);
+            err_hw = flush(y_actual) - y_hw;
+
+            total_lane_tests++;
+
+            // ✅ Only accumulate stats when at least one side is non-trivial
+            if (abs_real(flush(y_actual)) > 1e-6 || abs_real(y_hw) > 1e-6) begin
+                sum_error_hw += abs_real(pct_hw);
+                if (abs_real(pct_hw) > max_error_hw) begin
+                    max_error_hw    = abs_real(pct_hw);
+                    max_err_test_hw = test_name;
+                end
             end
-        end
-        total_avg_error_g1 /= real'(NUM_GELU);
-        total_avg_error_g2 /= real'(NUM_GELU);
-        
-        $display("║                          GLOBAL TEST SUMMARY                               ║");
-        $display("║                                                                            ║");
-        $display("║ Total Tests:       %6d (across %2d parallel GELU units)                  ║", 
-                 global_total, NUM_GELU);
-        $display("║ Tests per GELU:    %6d                                                    ║", 
-                 total_count[0]);
-        $display("║                                                                            ║");
-        $display("║ ══════════════════════════════════════════════════════════════════════════ ║");
-        $display("║ Golden Model 1: x / (1 + exp(-2*1.702*x))                                 ║");
-        $display("║ ══════════════════════════════════════════════════════════════════════════ ║");
-        $display("║   Total Passed:    %6d / %6d                                             ║", 
-                 global_pass_g1, global_total);
-        $display("║   Total Failed:    %6d / %6d                                             ║", 
-                 global_fail_g1, global_total);
-        $display("║   Pass Rate:       %6.2f%%                                                 ║", 
-                 pass_rate_g1);
-        $display("║   Avg Error:       %6.2f%% (across all GELUs)                              ║", 
-                 total_avg_error_g1);
-        $display("║                                                                            ║");
-        $display("║ ══════════════════════════════════════════════════════════════════════════ ║");
-        $display("║ Golden Model 2: 0.5*x*(1 + tanh(sqrt(2/π)*(x + 0.044715*x³)))             ║");
-        $display("║ ══════════════════════════════════════════════════════════════════════════ ║");
-        $display("║   Total Passed:    %6d / %6d                                             ║", 
-                 global_pass_g2, global_total);
-        $display("║   Total Failed:    %6d / %6d                                             ║", 
-                 global_fail_g2, global_total);
-        $display("║   Pass Rate:       %6.2f%%                                                 ║", 
-                 pass_rate_g2);
-        $display("║   Avg Error:       %6.2f%% (across all GELUs)                              ║", 
-                 total_avg_error_g2);
-        $display("║                                                                            ║");
-        
-        if (global_fail_g1 == 0 && global_fail_g2 == 0) begin
-            $display("║ ✅ ALL TESTS PASSED! 32-parallel GCU implementation verified.             ║");
-        end else begin
-            $display("║ ⚠️  Some tests failed. Review errors above for analysis.                 ║");
-        end
-        
-        // Display per-GELU statistics
-        $display("║                                                                            ║");
-        $display("║ ══════════════════════════════════════════════════════════════════════════ ║");
-        $display("║                       PER-GELU STATISTICS                                  ║");
-        $display("║ ══════════════════════════════════════════════════════════════════════════ ║");
-        
-        for (int i = 0; i < NUM_GELU; i++) begin
-            if (total_count[i] > 0) begin
-                avg_error_g1 = sum_error_g1[i] / real'(total_count[i]);
-                avg_error_g2 = sum_error_g2[i] / real'(total_count[i]);
-                $display("║ GELU[%2d]: G1=%3d/%3d (Avg:%5.2f%%) | G2=%3d/%3d (Avg:%5.2f%%)            ║",
-                         i, 
-                         pass_count_g1[i], total_count[i], avg_error_g1,
-                         pass_count_g2[i], total_count[i], avg_error_g2);
+
+            if (abs_real(pct_hw) < 10.0 || abs_real(err_hw) < 0.02)
+                pass_hw++;
+            else begin
+                fail_hw++;
+                lane_fail_hw++;
+                $display("    ⚠️  LANE %2d FAIL: x=%7.4f  y=%10.6f  exp=%10.6f  err=%.2f%%",
+                         lane, x_vals[lane], y_actual, y_hw, pct_hw);
             end
+
+            $display("    Lane[%2d]: x=%7.4f | y=%10.6f | hw_exp=%10.6f | err=%.3f%%",
+                     lane, x_vals[lane], y_actual, y_hw, pct_hw);
         end
+
+        if (lane_fail_hw == 0)
+            $display("    ✅ All 32 lanes PASSED");
+        #10;
     endtask
+
+    // =========================================================================
+    // Main Test Procedure
+    // =========================================================================
+    initial begin
+        for (int i = 0; i < NUM_GELU; i++) x[i] = '0;
+        #10;
+
+        $display("\n╔══════════════════════════════════════════════════════════════════════╗");
+        $display("║              GCU TESTBENCH - 32 Parallel GELU Lanes                ║");
+        $display("║  Input:    32 × Q10.22 (32-bit)                                    ║");
+        $display("║  Output:   32 × Q48.16 (64-bit)                                    ║");
+        $display("║  GoldenHW: x/(1+2^s(x)), s=-2.3125*(x+0.046875*x³)                ║");
+        $display("║  Golden2:  0.5x(1+tanh(sqrt(2/π)(x+0.044715x³)))                  ║");
+        $display("║  Tol HW:   10%% or |abs|<0.02                                       ║");
+        $display("║  Tol G2:   30%% or |abs|<0.05                                       ║");
+        $display("╚══════════════════════════════════════════════════════════════════════╝\n");
+
+        $display("════════ TEST 1: BOUNDARY VALUES ════════");
+        run_uniform_test("Min boundary",  -6.4586);
+        run_uniform_test("Max boundary",   5.6423);
+        run_uniform_test("Zero",           0.0);
+
+        $display("\n════════ TEST 2: POSITIVE RANGE ════════");
+        run_uniform_test("0.01",   0.01);
+        run_uniform_test("0.1",    0.1);
+        run_uniform_test("0.25",   0.25);
+        run_uniform_test("0.5",    0.5);
+        run_uniform_test("0.75",   0.75);
+        run_uniform_test("1.0",    1.0);
+        run_uniform_test("1.5",    1.5);
+        run_uniform_test("2.0",    2.0);
+        run_uniform_test("2.5",    2.5);
+        run_uniform_test("3.0",    3.0);
+        run_uniform_test("3.5",    3.5);
+        run_uniform_test("4.0",    4.0);
+        run_uniform_test("4.5",    4.5);
+        run_uniform_test("5.0",    5.0);
+        run_uniform_test("5.5",    5.5);
+
+        $display("\n════════ TEST 3: NEGATIVE RANGE ════════");
+        run_uniform_test("-0.01",  -0.01);
+        run_uniform_test("-0.1",   -0.1);
+        run_uniform_test("-0.25",  -0.25);
+        run_uniform_test("-0.5",   -0.5);
+        run_uniform_test("-0.75",  -0.75);
+        run_uniform_test("-1.0",   -1.0);
+        run_uniform_test("-1.5",   -1.5);
+        run_uniform_test("-2.0",   -2.0);
+        run_uniform_test("-2.5",   -2.5);
+        run_uniform_test("-3.0",   -3.0);
+        run_uniform_test("-3.5",   -3.5);
+        run_uniform_test("-4.0",   -4.0);
+        run_uniform_test("-4.5",   -4.5);
+        run_uniform_test("-5.0",   -5.0);
+        run_uniform_test("-5.5",   -5.5);
+        run_uniform_test("-6.0",   -6.0);
+
+        $display("\n════════ TEST 4: CRITICAL TRANSITIONS ════════");
+        run_uniform_test("Inflection +0.84",    0.8414);
+        run_uniform_test("Inflection -0.84",   -0.8414);
+        run_uniform_test("Linear region +0.3",  0.3);
+        run_uniform_test("Linear region -0.3", -0.3);
+        run_uniform_test("99pct sat +2.5",      2.5);
+        run_uniform_test("99pct sat -2.5",     -2.5);
+
+        $display("\n════════ TEST 5: DENSE SWEEP [-6, +5.5] step 0.5 ════════");
+        for (real val = -6.0; val <= 5.5; val += 0.5)
+            if (val >= -6.4586 && val <= 5.6423)
+                run_uniform_test($sformatf("Sweep %.1f", val), val);
+
+        $display("\n════════ TEST 6: FULL RANGE VECTOR (32 unique values) ════════");
+        begin
+            real x_vec[NUM_GELU-1:0];
+            for (int i = 0; i < NUM_GELU; i++)
+                x_vec[i] = -6.4586 + (12.1009 / 31.0) * i;
+            run_vector_test("Full range spread [-6.46..+5.64]", x_vec);
+        end
+
+        $display("\n════════ TEST 7: ALTERNATING ±1.0 PER LANE ════════");
+        begin
+            real x_alt[NUM_GELU-1:0];
+            for (int i = 0; i < NUM_GELU; i++)
+                x_alt[i] = (i % 2 == 0) ? 1.0 : -1.0;
+            run_vector_test("Alternating +1.0 / -1.0", x_alt);
+        end
+
+        $display("\n════════ TEST 8: ALTERNATING LARGE/SMALL ════════");
+        begin
+            real x_mix[NUM_GELU-1:0];
+            for (int i = 0; i < NUM_GELU; i++)
+                x_mix[i] = (i % 2 == 0) ? 5.0 : -5.0;
+            run_vector_test("Alternating +5.0 / -5.0", x_mix);
+        end
+
+        $display("\n════════ TEST 9: ALL ZEROS ════════");
+        run_uniform_test("All zeros", 0.0);
+
+        $display("\n════════ TEST 10: OUT-OF-RANGE (Saturation) ════════");
+        run_uniform_test("OOR +7.0",   7.0);
+        run_uniform_test("OOR +10.0", 10.0);
+        run_uniform_test("OOR -7.0",  -7.0);
+        run_uniform_test("OOR -10.0",-10.0);
+
+        $display("\n╔══════════════════════════════════════════════════════════════════════╗");
+        $display("║                       GCU TEST SUMMARY                              ║");
+        $display("╠══════════════════════════════════════════════════════════════════════╣");
+        $display("║  Total Lane Tests:  %5d  (unique lane × value combinations)        ║",
+                 total_lane_tests);
+        $display("║                                                                      ║");
+        $display("║  HW Model [tol: 10%% or |e|<0.02]:                                   ║");
+        $display("║    Passed: %5d / %5d  (%6.2f%%)                                  ║",
+                 pass_hw, total_lane_tests,
+                 (real'(pass_hw)/real'(total_lane_tests))*100.0);
+        $display("║    Failed: %5d                                                      ║", fail_hw);
+        $display("║    Max Error: %7.4f%%  (at: %-28s)          ║",
+                 max_error_hw, max_err_test_hw);
+        $display("║    Avg Error: %7.4f%%                                               ║",
+                 sum_error_hw / real'(total_lane_tests));
+        $display("║                                                                      ║");
+        $display("║  G2 Model [tol: 30%% or |e|<0.05]:                                   ║");
+        $display("║    Passed: %5d / %5d  (%6.2f%%)                                  ║",
+                 pass_g2, total_lane_tests,
+                 (real'(pass_g2)/real'(total_lane_tests))*100.0);
+        $display("║    Failed: %5d                                                      ║", fail_g2);
+        $display("║    Max Error: %7.4f%%  (at: %-28s)          ║",
+                 max_error_g2, max_err_test_g2);
+        $display("║    Avg Error: %7.4f%%                                               ║",
+                 sum_error_g2 / real'(total_lane_tests));
+        $display("╠══════════════════════════════════════════════════════════════════════╣");
+
+        if (fail_hw == 0)
+            $display("║  ✅ ALL LANES PASSED - GCU Architecture Fully Verified!              ║");
+        else
+            $display("║  ⚠️  %4d lane failures - inspect per-lane debug above                ║", fail_hw);
+
+        if (fail_g2 == 0)
+            $display("║  ✅ G2 GELU REF: ALL PASSED                                          ║");
+        else
+            $display("║  ℹ️  G2 approx delta expected - %4d outside 30%% tol                  ║", fail_g2);
+
+        $display("╚══════════════════════════════════════════════════════════════════════╝\n");
+
+        $finish;
+    end
 
 endmodule

@@ -1,6 +1,5 @@
-// Leading One Detector (LOD) - Finds position of MSB '1'
 module LOD #(
-    parameter int W = 64  // Support 64-bit for Q48.16
+    parameter int W = 64  // Q48.16
 )(
     input  logic [W-1:0]         data_in,
     output logic [$clog2(W)-1:0] lod_pos,   // Position of leading 1

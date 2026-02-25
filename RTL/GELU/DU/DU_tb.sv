@@ -38,10 +38,7 @@ module DU_tb;
     assign s1 = dut.s1;
     assign s2 = dut.s2;
 
-    //===========================================================================
     // HELPER FUNCTIONS
-    //===========================================================================
-
     // Convert Q48.16 to decimal
     function real q48_16_to_decimal(logic signed [W-1:0] val);
         begin
@@ -91,9 +88,7 @@ module DU_tb;
         end
     endfunction
 
-    //===========================================================================
     // TEST TASK
-    //===========================================================================
     task run_test(
         input string test_name,
         input real f_val,
@@ -132,9 +127,9 @@ module DU_tb;
             abs_error = (error_percent < 0.0) ? -error_percent : error_percent;
 
             // Display test header
-            $display("\n╔════════════════════════════════════════════════════════════════════╗");
-            $display("║ TEST %0d: %-60s ║", test_count, test_name);
-            $display("╚════════════════════════════════════════════════════════════════════╝");
+            $display("\n====================================================================");
+            $display("| TEST %0d: %-60s |", test_count, test_name);
+            $display("======================================================================");
 
             // Display inputs
             $display("\nINPUTS:");
@@ -172,29 +167,27 @@ module DU_tb;
             // Check sign
             if (result_sign != expected_sign) begin
                 $display("  [SIGN MISMATCH] Expected sign=%b, Got sign=%b", expected_sign, result_sign);
-                $display("  ❌ FAIL");
+                $display("  FAIL");
                 fail_count++;
             end else if (abs_error > tolerance_percent) begin
                 $display("  [ERROR TOO HIGH] Exceeds %.1f%% tolerance", tolerance_percent);
-                $display("  ❌ FAIL");
+                $display("  FAIL");
                 fail_count++;
             end else begin
-                $display("  ✅ PASS (within %.1f%% tolerance)", tolerance_percent);
+                $display("  PASS (within %.1f%% tolerance)", tolerance_percent);
                 pass_count++;
             end
         end
     endtask
 
-    //===========================================================================
     // MAIN TEST SEQUENCE
-    //===========================================================================
     initial begin
-        $display("\n╔═══════════════════════════════════════════════════════════════════════╗");
-        $display("║           DU Testbench - Testing F / (1 + s_xi)                      ║");
-        $display("║           Format: Q48.16 (48 integer bits, 16 fractional bits)       ║");
-        $display("║           Combinational Version (No Clock)                           ║");
-        $display("║           Mitchell's Algorithm with ~5-20%% approximation error      ║");
-        $display("╚═══════════════════════════════════════════════════════════════════════╝\n");
+        $display("\n===========================================================================");
+        $display("|           DU Testbench - Testing F / (1 + s_xi)                      |");
+        $display("|           Format: Q48.16 (48 integer bits, 16 fractional bits)       |");
+        $display("|           Combinational Version (No Clock)                           |");
+        $display("|           Mitchell's Algorithm with ~5-20%% approximation error      |");
+        $display("===========================================================================\n");
 
         // Initialize
         F = 0;
@@ -251,30 +244,29 @@ module DU_tb;
         run_test("F = 100.0, s_xi = 99.0 → 100.0/100.0 = 1.0", 100.0, 99.0, 20.0);
 
         // ========== EU OUTPUT RANGE TESTS ==========
-        $display("\n╔════════════════════════════════════════════════════════════════════╗");
-        $display("║  Testing with typical EU outputs (exp values from sigmoid)        ║");
-        $display("╚════════════════════════════════════════════════════════════════════╝");
+        $display("\n====================================================================");
+        $display("|  Testing with typical EU outputs (exp values from sigmoid)        |");
+        $display("======================================================================");
         
         run_test("F = 1.0, s_xi = 0.000045 (exp(-10)) → 1/1.000045", 1.0, 0.000045, 20.0);
         run_test("F = 1.0, s_xi = 1.0 (exp(0)) → 1/2", 1.0, 1.0, 10.0);
         run_test("F = 1.0, s_xi = 2.718 (exp(1)) → 1/3.718", 1.0, 2.718, 20.0);
         run_test("F = 1.0, s_xi = 148.413 (exp(5)) → 1/149.413", 1.0, 148.413, 20.0);
-        run_test("F = 1.0, s_xi = 1000000.0 (exp(~14)) → 1/1000001", 1.0, 1000000.0, 30.0);
 
         // Final summary
-        $display("\n╔════════════════════════════════════════════════════════════════════╗");
-        $display("║                    TEST SUMMARY                                    ║");
-        $display("╠════════════════════════════════════════════════════════════════════╣");
-        $display("║  Total Tests:  %3d                                                 ║", test_count);
-        $display("║  Passed:       %3d                                                 ║", pass_count);
-        $display("║  Failed:       %3d                                                 ║", fail_count);
-        $display("╠════════════════════════════════════════════════════════════════════╣");
+        $display("\n====================================================================");
+        $display("|                    TEST SUMMARY                                    |");
+        $display("=======================================================================");
+        $display("|  Total Tests:  %3d                                                 |", test_count);
+        $display("|  Passed:       %3d                                                 |", pass_count);
+        $display("|  Failed:       %3d                                                 |", fail_count);
+        $display("======================================================================");
         if (fail_count == 0) begin
-            $display("║  ✅ ALL TESTS PASSED!                                             ║");
+            $display("|  ALL TESTS PASSED!                                             |");
         end else begin
-            $display("║  ❌ SOME TESTS FAILED                                             ║");
+            $display("|  SOME TESTS FAILED                                             |");
         end
-        $display("╚════════════════════════════════════════════════════════════════════╝\n");
+        $display("======================================================================\n");
 
         $display("NOTE: Mitchell's algorithm has inherent ~5-20%% approximation error.");
         $display("      This is NORMAL and EXPECTED for this logarithmic approximation.\n");

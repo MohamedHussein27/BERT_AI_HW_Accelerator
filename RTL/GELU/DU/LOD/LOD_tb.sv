@@ -2,7 +2,7 @@
 
 module LOD_tb;
 
-    localparam int W = 64;  // Test with 64-bit for DU compatibility
+    localparam int W = 64;  
 
     logic [W-1:0]          data_in;
     logic [$clog2(W)-1:0]  lod_pos;

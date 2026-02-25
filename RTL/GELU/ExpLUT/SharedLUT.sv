@@ -1,12 +1,12 @@
 `timescale 1ns/1ps
-// Shared LUT Module - Single instance for all 32 EU modules
+
 module SharedLUT #(
   parameter int Q = 22,
   parameter int W = 32,
   parameter int NUM_SEGMENTS = 8,
   parameter int NUM_PORTS = 64  // Number of parallel access ports
 ) (
-  input  wire [2:0]               segment_index [NUM_PORTS-1:0],  // Changed logic to wire
+  input  wire [2:0]               segment_index [NUM_PORTS-1:0],  
   output logic signed [W-1:0]     k_coeff [NUM_PORTS-1:0],
   output logic signed [W-1:0]     b_intercept [NUM_PORTS-1:0]
 );
