@@ -1,5 +1,5 @@
 module PE #(
-    parameter DATAWIDTH = 8,
+    parameter DATAWIDTH        = 8,
     parameter DATAWIDTH_output = 32
 )(
     input  logic clk,
@@ -7,31 +7,36 @@ module PE #(
     input  logic wt_en,
     input  logic valid_in,
 
-    input  logic signed [(DATAWIDTH) - 1:0] wt,
-    input  logic signed [(DATAWIDTH) - 1:0] in_A,
+    input  logic signed [(DATAWIDTH) - 1:0]    wt,
+    input  logic signed [(DATAWIDTH) - 1:0]    in_A,
     input  logic signed [DATAWIDTH_output-1:0] in_B,
 
     output logic signed [DATAWIDTH_output-1:0] out_D,
-    output logic signed [(DATAWIDTH) - 1:0] out_R
+    output logic signed [(DATAWIDTH) - 1:0]    out_R
 );
 
-    logic signed [(DATAWIDTH) - 1:0] weight;
+    (* use_dsp = "yes" *) logic signed [DATAWIDTH_output-1:0] mac_out;
 
+    logic signed [(DATAWIDTH)-1:0] weight;
+
+    // Synchronous reset — allows the accumulator register to live
+    // inside the DSP48 P-register (async reset blocks DSP inference)
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            out_D  <= 0;
-            out_R  <= 0;
-            weight <= 0;
+            mac_out <= '0;
+            out_R   <= '0;
+            weight  <= '0;
         end else begin
-            // load weight into local reg
-            if (wt_en) 
+            if (wt_en)
                 weight <= wt;
 
-            // only compute when valid
             if (valid_in) begin
-                (* use_dsp = "yes" *) out_D <= (in_A * weight) + in_B;
-                out_R <= in_A;
+                mac_out <= (in_A * weight) + in_B;  // line unchanged
+                out_R   <= in_A;
             end
         end
     end
+
+    assign out_D = mac_out;
+
 endmodule
