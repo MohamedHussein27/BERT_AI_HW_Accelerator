@@ -3,8 +3,8 @@
 module SharedLUT_tb;
 
     // Parameters
-    localparam int Q = 26;          // Q5.26 format
-    localparam int W = 32;          // 32-bit width
+    localparam int Q = 22;          
+    localparam int W = 32;          
     localparam int NUM_SEGMENTS = 8;
     localparam int NUM_PORTS = 32;
 
@@ -13,15 +13,27 @@ module SharedLUT_tb;
     logic signed [W-1:0] k_coeff [NUM_PORTS-1:0];
     logic signed [W-1:0] b_intercept [NUM_PORTS-1:0];
 
-    // Expected values (Q5.26 format)
+    // Expected values
     localparam logic signed [W-1:0] K_expected [0:7] = '{
-        32'h02E57078, 32'h03288B9B, 32'h0371B996, 32'h03C18722,
-        32'h04188DB7, 32'h047774AE, 32'h04DEF287, 32'h054FCE46
+        32'h002E5707, // 0.724062
+        32'h003288B9, // 0.789595
+        32'h00371B99, // 0.861059
+        32'h003C1872, // 0.938992
+        32'h004188DB, // 1.023978
+        32'h0047774A, // 1.116656
+        32'h004DEF28, // 1.217722
+        32'h0054FCE4 // 1.327935
     };
 
     localparam logic signed [W-1:0] B_expected [0:7] = '{
-        32'h04000000, 32'h03F79C9B, 32'h03E5511D, 32'h03C76408,
-        32'h039BE0BD, 32'h03609063, 32'h0312F200, 32'h02B031B9
+    32'h00400000, // 1.000000
+    32'h003F79C9, // 0.991808
+    32'h003E5511, // 0.973942
+    32'h003C7640, // 0.944717
+    32'h0039BE0B, // 0.902224
+    32'h00360906, // 0.844301
+    32'h00312F20, // 0.768501
+    32'h002B031B // 0.672065
     };
 
     // Error tracking
@@ -62,7 +74,7 @@ module SharedLUT_tb;
             end
             
             if (errors == 0) 
-                $display("✓ PASS: All outputs stable within 1ns");
+                $display("PASS: All outputs stable within 1ns");
         end
     endtask
 
@@ -91,7 +103,7 @@ module SharedLUT_tb;
             end
             
             if (errors == 0)
-                $display("✓ PASS: All 12 layers correct");
+                $display("PASS: All 12 layers correct");
         end
     endtask
 
@@ -131,7 +143,7 @@ module SharedLUT_tb;
             end
             
             if (errors == 0)
-                $display("✓ PASS: Random access correct");
+                $display("PASS: Random access correct");
         end
     endtask
 
@@ -169,7 +181,7 @@ module SharedLUT_tb;
             end
             
             if (errors == 0)
-                $display("✓ PASS: All LUT entries correct");
+                $display("PASS: All LUT entries correct");
         end
     endtask
 
@@ -204,10 +216,10 @@ module SharedLUT_tb;
             end
             
             if (local_errors == 0)
-                $display("✓ PASS: %0d segment × %0d port = %0d tests passed", 
+                $display("PASS: %0d segment × %0d port = %0d tests passed", 
                          NUM_SEGMENTS, NUM_PORTS, NUM_SEGMENTS * NUM_PORTS);
             else
-                $display("✗ FAIL: %0d/%0d tests failed", 
+                $display("FAIL: %0d/%0d tests failed", 
                          local_errors, NUM_SEGMENTS * NUM_PORTS);
         end
     endtask
@@ -244,9 +256,9 @@ module SharedLUT_tb;
         // Summary
         $display("\n========================================");
         if (errors == 0)
-            $display("  ✓ ALL TESTS PASSED!");
+            $display("  ALL TESTS PASSED!");
         else
-            $display("  ✗ FAILED: %0d errors", errors);
+            $display("  FAILED: %0d errors", errors);
         $display("========================================\n");
         
         $finish;
