@@ -3,7 +3,7 @@
 module PolynomialUnit_tb;
 
     parameter WIDTH = 32;
-    parameter Q = 22;  // Q10.22 format (1 sign + 9 integer + 22 fractional)
+    parameter Q = 22;  // Q10.22 format
     
     // DUT signals
     reg  signed [WIDTH-1:0] x;
@@ -195,9 +195,9 @@ module PolynomialUnit_tb;
         $display("====================================================================================");
         
         if (fail_count == 0) begin
-            $display("                      ✓ ALL TESTS PASSED!                                       ");
+            $display("                      ALL TESTS PASSED!                                       ");
         end else begin
-            $display("                      ✗ SOME TESTS FAILED!                                      ");
+            $display("                      SOME TESTS FAILED!                                      ");
         end
         $display("====================================================================================");
         
