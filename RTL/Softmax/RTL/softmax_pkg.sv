@@ -64,8 +64,10 @@ package softmax_pkg;
   } sm_state_t;
 
   //--------------------------------------------------------------------------
-  // Helper Functions
+  // Helper Functions (simulation only - not synthesizable)
   //--------------------------------------------------------------------------
+  // synthesis translate_off
+  `ifndef SYNTHESIS
 
   // Convert real to Q5.26 signed 32-bit (for simulation only)
   function automatic logic [DATA_W-1:0] real_to_q526(input real val);
@@ -83,5 +85,8 @@ package softmax_pkg;
   function automatic real q824_to_real(input logic [ACC_W-1:0] val);
     return real'(val) / real'(1 << FRAC_ACC);
   endfunction
+
+  `endif
+  // synthesis translate_on
 
 endpackage

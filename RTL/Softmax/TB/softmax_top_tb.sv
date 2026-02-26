@@ -183,7 +183,6 @@ module softmax_top_tb;
           vec_out_cnt = vec_out_cnt + 1;
           out_idx     = out_idx + 1;
         end
-        end
       end
 
       if (cycle_cnt >= TIMEOUT) begin

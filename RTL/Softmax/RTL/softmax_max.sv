@@ -40,7 +40,7 @@ module softmax_max
   //--------------------------------------------------------------------------
   // Internal SRAM for storing input vector
   //--------------------------------------------------------------------------
-  logic signed [D_W-1:0] sram [0:MAX_LEN-1];
+  (* ram_style = "block" *) logic signed [D_W-1:0] sram [0:MAX_LEN-1];
 
   //--------------------------------------------------------------------------
   // Registers
@@ -55,6 +55,14 @@ module softmax_max
   //--------------------------------------------------------------------------
   always_ff @(posedge clk) begin
     rd_data <= sram[rd_addr];
+  end
+
+  //--------------------------------------------------------------------------
+  // SRAM write port (separate from async-reset block for BRAM inference)
+  //--------------------------------------------------------------------------
+  always_ff @(posedge clk) begin
+    if (active && in_valid)
+      sram[cnt] <= in_data;
   end
 
   //--------------------------------------------------------------------------
@@ -82,9 +90,6 @@ module softmax_max
         vec_len_r   <= vec_len_cfg;
         running_max <= {1'b1, {(D_W-1){1'b0}}}; // Reset to most-negative
       end else if (active && in_valid) begin
-        // Store input to SRAM
-        sram[cnt] <= in_data;
-
         // Update running max
         if ($signed(in_data) > $signed(running_max))
           running_max <= in_data;
