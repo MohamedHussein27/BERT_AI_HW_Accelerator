@@ -1,8 +1,0 @@
-C:/Digital_Design/AI_Accelerators_ST/BERT/Design/BERT_AI_HW_Accelerator/RTL/Softmax/Newton-Raphson_Reciprocal/RTL/nr_recip.sv {1 {vlog -work work -sv -stats=none C:/Digital_Design/AI_Accelerators_ST/BERT/Design/BERT_AI_HW_Accelerator/RTL/Softmax/Newton-Raphson_Reciprocal/RTL/nr_recip.sv
-Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
--- Compiling module nr_recip
-
-Top level modules:
-	nr_recip
-
-} {} {}}
