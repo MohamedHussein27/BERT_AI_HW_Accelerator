@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 module tb_fetch_bram_FFN_W_B_I;
 
-    parameter ADDR_WIDTH       = 16;
+    parameter ADDR_WIDTH       = 15;
     parameter ORIGINAL_COLUMNS = 768;
     parameter ORIGINAL_ROWS    = 512;
     parameter NUM_BITS         = 8;
@@ -13,7 +13,7 @@ module tb_fetch_bram_FFN_W_B_I;
     reg [3:0] Buffer_Select;
     reg Tiles_Control;
     reg ena, wea;
-    reg [13:0] addra;
+    reg [ADDR_WIDTH-1:0] addra;
     reg [DATA_WIDTH-1:0] dina;
 
     wire fetch_done;
@@ -74,7 +74,7 @@ module tb_fetch_bram_FFN_W_B_I;
         wea = 0;
         addra = 0;
         dina = 0;
-        Buffer_Select = 4'b0000;
+        Buffer_Select = 4'b1001;
         Tiles_Control = 1'b1;
         Double_buffering = 0;
 
@@ -82,16 +82,11 @@ module tb_fetch_bram_FFN_W_B_I;
         rst_n = 1;
         ena = 1;
 
-        // Reset internal pointer
-        reset_addr_counter = 1;
-        repeat(2) @(negedge clk);
-        reset_addr_counter = 0;
-
         // =====================
         // Write BRAM
         // =====================
         $display("Writing FFN_W_B_I_buffer...");
-        for (i = 0; i < 10000; i = i + 1) begin
+        for (i = 0; i < 24736; i = i + 1) begin
             wea  = 1;
             dina = i + 32'h1000;
             @(negedge clk);
@@ -111,14 +106,29 @@ module tb_fetch_bram_FFN_W_B_I;
 
         wait(fetch_done);
         $display("Fetch done at time %0t", $time);
+        
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 1;
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 0;
+        Double_buffering = 1'b1;
+
+        $display("Starting double-buffer FFN fetch...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+
+        wait(fetch_done);
+        $display("Double-buffer FFN fetch done at time %0t", $time);
 
         // =====================
         // Change tiling mode
         // =====================
-        Tiles_Control = 1'b0;
         reset_addr_counter = 1;
         repeat(2) @(negedge clk);
         reset_addr_counter = 0;
+        Buffer_Select = 4'b1011;
+        Tiles_Control = 1'b0;
 
         $display("Starting second FFN fetch...");
         start_fetch = 1;
@@ -131,11 +141,8 @@ module tb_fetch_bram_FFN_W_B_I;
         // =====================
         // Double buffering test
         // =====================
-        Double_buffering = 1'b1;
-
-        reset_addr_counter = 1;
         repeat(2) @(negedge clk);
-        reset_addr_counter = 0;
+        Double_buffering = 1'b1;
 
         $display("Starting double-buffer FFN fetch...");
         start_fetch = 1;

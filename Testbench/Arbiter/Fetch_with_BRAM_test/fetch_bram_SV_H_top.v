@@ -1,8 +1,8 @@
-module fetch_bram_FFN_intermediate_O_top #(
-    parameter ADDR_WIDTH        = 17,
-    parameter ORIGINAL_COLUMNS  = 768,
-    parameter ORIGINAL_ROWS     = 512,
-    parameter NUM_BITS          = 8,
+module fetch_bram_SV_H_top #(
+    parameter ADDR_WIDTH        = 15,
+    parameter ORIGINAL_COLUMNS  = 768,   // matrix columns before transpose
+    parameter ORIGINAL_ROWS     = 512,   // matrix rows before transpose
+    parameter NUM_BITS          = 8,     // quantized element
     parameter DATA_WIDTH        = 256
 )(
     // =====================
@@ -12,7 +12,7 @@ module fetch_bram_FFN_intermediate_O_top #(
     input  wire                     rst_n,
 
     // =====================
-    // Control signals
+    // Control signals for fetch logic
     // =====================
     input  wire                     start_fetch,
     input  wire                     reset_addr_counter,
@@ -21,26 +21,29 @@ module fetch_bram_FFN_intermediate_O_top #(
     input  wire                     Double_buffering,
 
     // =====================
-    // Write-side (Port A)
+    // Write-side (Port A) inputs to preload BRAM
     // =====================
-    input  wire                     wea,
-    input  wire                     ena,
-    input  wire [ADDR_WIDTH-1:0]    addra,
-    input  wire [DATA_WIDTH-1:0]    dina,
+    input  wire                     wea,        // write enable (active high)
+    input  wire                     ena,        // enable for port A
+    input  wire [DATA_WIDTH-1:0]    addra,      // write address
+    input  wire [DATA_WIDTH-1:0]    dina,       // write data
 
     // =====================
-    // Outputs
+    // Outputs for monitoring
     // =====================
-    output wire                     fetch_done,
-    output wire                     busy,
-    output wire [DATA_WIDTH-1:0]    doutb,
-    output wire [ADDR_WIDTH-1:0]    addrb
+    output wire                     fetch_done, // pulse when tile done
+    output wire                     busy,       // high while fetching
+    output wire [DATA_WIDTH-1:0]    doutb,      // data read from BRAM (Port B)
+    output wire [ADDR_WIDTH-1:0]    addrb       // address used for read (for debug)
 );
 
+    // =====================
+    // Internal signals
+    // =====================
     wire bram_en_b;
 
     // =====================
-    // Fetch Logic
+    // Instantiate the Fetch Logic
     // =====================
     fetch_logic_gen #(
         .ADDR_WIDTH(ADDR_WIDTH),
@@ -66,9 +69,9 @@ module fetch_bram_FFN_intermediate_O_top #(
     );
 
     // =====================
-    // FFN Intermediate + O Buffer BRAM
+    // Instantiate the NEW BRAM (Dual Port)
     // =====================
-    FFN_intermediate_O_buffer u_FFN_intermediate_O_buffer (
+    SV_H_intermediate_buffer u_SV_H__buffer (
         // Port A (write)
         .clka(clk),
         .ena(ena),

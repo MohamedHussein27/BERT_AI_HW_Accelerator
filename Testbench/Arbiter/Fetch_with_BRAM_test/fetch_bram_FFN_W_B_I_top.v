@@ -1,5 +1,5 @@
 module fetch_bram_FFN_W_B_I_top #(
-    parameter ADDR_WIDTH        = 16,
+    parameter ADDR_WIDTH        = 15,
     parameter ORIGINAL_COLUMNS  = 768,
     parameter ORIGINAL_ROWS     = 512,
     parameter NUM_BITS          = 8,
@@ -25,7 +25,7 @@ module fetch_bram_FFN_W_B_I_top #(
     // =====================
     input  wire                     wea,
     input  wire                     ena,
-    input  wire [13:0]              addra,
+    input  wire [ADDR_WIDTH-1:0]    addra,
     input  wire [DATA_WIDTH-1:0]    dina,
 
     // =====================
