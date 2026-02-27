@@ -14,7 +14,7 @@ module fetch_logic_gen #(
     input  wire                         start_fetch,         // Pulse to begin fetching the next tile
     input  wire                         reset_addr_counter,  // Pulse to reset the internal address pointer
     input  wire [3:0]                   Buffer_Select,       // control signal to choose which buffer we are reading from, you will find it at the end of the code
-    input  wire                         Tiles_Control,       // control signal to choose how many reads we will do, if weights so we will tile 32 times, if inputs we will tile 512 times
+    input  wire [1:0]                   Tiles_Control,       // control signal to choose how many reads we will do, if weights so we will tile 32 times, if inputs we will tile 512 times
     input  wire                         Double_buffering,    // control signal to make us read from the double buffering addresses in weights and inputs 
 
     // BRAM Interface
@@ -33,8 +33,8 @@ module fetch_logic_gen #(
 
     reg [1:0] current_state, next_state;
     
-    reg [14:0] FETCH_START_OFFSET;
-    wire [9:0] NUM_FETCHES_PER_TILE; // to choose how many fetchs we take in one tile
+    reg [15:0] FETCH_START_OFFSET;
+    reg [13:0] NUM_FETCHES_PER_TILE; // to choose how many fetchs we take in one tile
     
     integer i = 0, j = 0; // rows, columns
 
@@ -182,11 +182,11 @@ module fetch_logic_gen #(
                 4'b0101 : FETCH_START_OFFSET = 
                     2*((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH); // V
 
-                4'b0110 : FETCH_START_OFFSET = 16'd8192;            // kTQ
+                4'b0110 : FETCH_START_OFFSET = 0;                   // kTQ
 
-                4'b0111 : FETCH_START_OFFSET = 16'd20480;           // SV
+                4'b0111 : FETCH_START_OFFSET = 0;                   // SV
 
-                4'b1000 : FETCH_START_OFFSET = 16'd28672;           // H
+                4'b1000 : FETCH_START_OFFSET = 16'd12288;            // H
 
 
                 // =====================================================
@@ -201,20 +201,28 @@ module fetch_logic_gen #(
                 4'b1010 : FETCH_START_OFFSET = 16'd64;
 
                 // FFN Input
-                4'b1011 : FETCH_START_OFFSET = 16'd160;
+                4'b1011 : FETCH_START_OFFSET = 
+                            (Double_buffering) ? 16'd12448 : 16'd0;
 
                 // FFN Intermediate
                 4'b1100 : FETCH_START_OFFSET = 16'd0;
 
                 // Output Buffer (O_buffer)
-                4'b1101 : FETCH_START_OFFSET = 16'd49152;
+                4'b1101 : FETCH_START_OFFSET = 
+                            (Double_buffering) ? 16'd61440 : 16'd0;
 
                 default : FETCH_START_OFFSET = 16'd0;
 
             endcase
         end
 
-        // if we are fetching weights, NUM_FETCHES_PER_TILE will be 32, if inputs NUM_FETCHES_PER_TILE will be 512
-        assign NUM_FETCHES_PER_TILE = Tiles_Control ? 10'd32 : 10'd512;
+        // if we are fetching weights, NUM_FETCHES_PER_TILE will be 32, if inputs NUM_FETCHES_PER_TILE will be 512 
+        always @(*) begin
+            case (Tiles_Control)
+                2'b00: NUM_FETCHES_PER_TILE = 14'd512;
+                2'b01: NUM_FETCHES_PER_TILE = 14'd32;
+                2'b10: NUM_FETCHES_PER_TILE = 14'd12288; // used with add & norm buffers
+            endcase
+        end
 endmodule
 
