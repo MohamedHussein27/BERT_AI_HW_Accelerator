@@ -1,4 +1,7 @@
-module write_bram_top (
+module write_bram_top #(
+    parameter ADDR_WIDTH          = 16,
+    parameter MAX_DEPTH           = 36864) // max depth of the BRAM 
+    (
     // =====================
     // System signals
     // =====================
@@ -27,6 +30,7 @@ module write_bram_top (
     // Status outputs
     // =====================
     output wire         write_done,          // pulse high when tile write complete
+    output wire         busy,                // signal to indicate we are writing
     output wire [15:0]  current_addr         // optional: for monitoring/debug
 );
 
@@ -38,9 +42,8 @@ module write_bram_top (
     // Write logic instantiation
     // =====================
     write_logic_gen #(
-        .NUM_WRITES_PER_TILE(16),
-        .ADDR_WIDTH(16),
-        .ADDR_STRIDE(24)
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .MAX_DEPTH(MAX_DEPTH)
     ) u_write_logic (
         .clk(clk),
         .rst_n(rst_n),
@@ -51,7 +54,8 @@ module write_bram_top (
         .bram_addr(bram_addr),
         .bram_we(bram_we),
 
-        .write_done(write_done)
+        .write_done(write_done),
+        .busy(busy)
     );
 
     // =====================
