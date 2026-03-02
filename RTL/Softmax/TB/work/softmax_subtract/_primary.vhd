@@ -3,7 +3,7 @@ use verilog.vl_types.all;
 entity softmax_subtract is
     generic(
         D_W             : integer := 32;
-        IDX_W           : integer := 7
+        IDX_W           : integer := 10
     );
     port(
         clk             : in     vl_logic;

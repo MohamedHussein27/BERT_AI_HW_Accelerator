@@ -6,8 +6,8 @@ entity softmax_accumulator is
         FRAC_I          : integer := 15;
         O_W             : integer := 32;
         FRAC_O          : integer := 24;
-        MAX_LEN         : integer := 128;
-        IDX_W           : integer := 7
+        MAX_LEN         : integer := 512;
+        IDX_W           : integer := 10
     );
     port(
         clk             : in     vl_logic;

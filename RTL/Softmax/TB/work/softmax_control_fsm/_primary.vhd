@@ -3,7 +3,7 @@ use verilog.vl_types.all;
 library work;
 entity softmax_control_fsm is
     generic(
-        IDX_W           : integer := 7
+        IDX_W           : integer := 10
     );
     port(
         clk             : in     vl_logic;

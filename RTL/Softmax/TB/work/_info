@@ -5,139 +5,140 @@ cModel Technology
 Z0 dC:\Digital_Design\AI_Accelerators_ST\BERT\Design\BERT_AI_HW_Accelerator\RTL\Softmax_Updated\TB
 vaccumulator_tb
 Z1 DXx6 sv_std 3 std 0 22 F[19LRNL:5;XmIFh[XOPn1
-Z2 DXx4 work 11 softmax_pkg 0 22 23`O6X6C3E1FO@G=Rfb9c1
+Z2 DXx4 work 11 softmax_pkg 0 22 ShoQ]6]218eA[f:X2kWXP2
 Z3 !s100 czXIO]3mgKFCYBX6236l32
 Z4 I9LfCl3_T[=hmGG3SmJ?Ak3
 Z5 V_W5PCe_igRj?OF[6Yh`O30
+Z6 !s105 accumulator_tb_sv_unit
 S1
-Z6 dC:\Digital_Design\AI_Accelerators_ST\BERT\Design\BERT_AI_HW_Accelerator\RTL\Softmax\TB
-Z7 w1771218158
-Z8 8accumulator_tb.sv
-Z9 Faccumulator_tb.sv
+Z7 dC:\Digital_Design\AI_Accelerators_ST\BERT\Design\BERT_AI_HW_Accelerator\RTL\Softmax_Updated\TB
+Z8 w1771218158
+Z9 8accumulator_tb.sv
+Z10 Faccumulator_tb.sv
 L0 10
-Z10 OV;L;10.1d;51
+Z11 OV;L;10.1d;51
 r1
 31
-Z11 o-sv -O0
-Z12 !s105 accumulator_tb_sv_unit
-Z13 !s108 1772095331.460000
-Z14 !s107 accumulator_tb.sv|
-Z15 !s90 -sv|accumulator_tb.sv|
+Z12 !s108 1771219425.311000
+Z13 !s107 accumulator_tb.sv|..\RTL\softmax_accumulator.sv|..\RTL\softmax_pkg.sv|
+Z14 !s90 -sv|..\RTL\softmax_pkg.sv|..\RTL\softmax_accumulator.sv|accumulator_tb.sv|
+Z15 o-sv -O0
 !i10b 1
 !s85 0
 !s101 -O0
 vbert_softmax
 R1
-R2
-Z16 !s100 dZQRS`ElUKQl4]YnVWAID3
-Z17 I`MU5Dh=CoMLhcZWE=i9<90
-Z18 VSNAHdNLVU^^BJUITQMI9K0
+Z16 DXx4 work 11 softmax_pkg 0 22 F:i?_e?X@cPk;1n3P:J=42
+!i10b 1
+Z17 !s100 dZQRS`ElUKQl4]YnVWAID3
+Z18 Ig>jU:0<T1BCEbZDRZ[A@i3
+VbHFYzk[D;__;k_>LIQV[i0
 Z19 !s105 bert_softmax_sv_unit
 S1
-R6
-Z20 w1771217943
-Z21 8../RTL/bert_softmax.sv
-Z22 F../RTL/bert_softmax.sv
+Z20 dC:\Digital_Design\AI_Accelerators_ST\BERT\Design\Softmax_Updated\TB
+Z21 w1771217943
+Z22 8../RTL/bert_softmax.sv
+Z23 F../RTL/bert_softmax.sv
 L0 19
-R10
-r1
-31
-Z23 !s108 1772096502.755000
-Z24 !s107 ../RTL/bert_softmax.sv|../RTL/softmax_control_fsm.sv|../RTL/softmax_normalize.sv|../RTL/softmax_reciprocal.sv|../RTL/softmax_accumulator.sv|../RTL/softmax_exp_pla.sv|../RTL/softmax_subtract.sv|../RTL/softmax_max.sv|../RTL/softmax_pkg.sv|
-Z25 !s90 -sv|../RTL/softmax_pkg.sv|../RTL/softmax_max.sv|../RTL/softmax_subtract.sv|../RTL/softmax_exp_pla.sv|../RTL/softmax_accumulator.sv|../RTL/softmax_reciprocal.sv|../RTL/softmax_normalize.sv|../RTL/softmax_control_fsm.sv|../RTL/bert_softmax.sv|
 R11
-!i10b 1
+r1
 !s85 0
+31
+Z24 !s108 1772492252.190000
+Z25 !s107 softmax_top_tb.sv|../RTL/bert_softmax.sv|../RTL/softmax_control_fsm.sv|../RTL/softmax_normalize.sv|../RTL/softmax_reciprocal.sv|../RTL/softmax_accumulator.sv|../RTL/softmax_exp_pla.sv|../RTL/softmax_subtract.sv|../RTL/softmax_max.sv|../RTL/softmax_pkg.sv|
+Z26 !s90 -sv|+incdir+../RTL|../RTL/softmax_pkg.sv|../RTL/softmax_max.sv|../RTL/softmax_subtract.sv|../RTL/softmax_exp_pla.sv|../RTL/softmax_accumulator.sv|../RTL/softmax_reciprocal.sv|../RTL/softmax_normalize.sv|../RTL/softmax_control_fsm.sv|../RTL/bert_softmax.sv|softmax_top_tb.sv|
 !s101 -O0
+R15
+Z27 !s92 -sv +incdir+../RTL -O0
 vexp_debug_tb
 R1
 R2
-Z26 !s100 `?643@hgn9A]neU1ZT6nc2
-Z27 IhCJ>fReHi0cZRO84KN]?a1
-Z28 VmZ5WF^8k3QZcVIeU4BmZ[1
+Z28 !s100 `?643@hgn9A]neU1ZT6nc2
+Z29 IhCJ>fReHi0cZRO84KN]?a1
+Z30 VmZ5WF^8k3QZcVIeU4BmZ[1
+Z31 !s105 exp_debug_tb_sv_unit
 S1
-R6
-Z29 w1771219268
-Z30 8exp_debug_tb.sv
-Z31 Fexp_debug_tb.sv
+R7
+Z32 w1771219268
+Z33 8exp_debug_tb.sv
+Z34 Fexp_debug_tb.sv
 L0 7
-R10
+R11
 r1
 31
-R11
-Z32 !s105 exp_debug_tb_sv_unit
-Z33 !s108 1772095331.565000
-Z34 !s107 exp_debug_tb.sv|
-Z35 !s90 -sv|exp_debug_tb.sv|
+Z35 !s108 1771219383.009000
+Z36 !s107 exp_debug_tb.sv|..\RTL\softmax_exp_pla.sv|..\RTL\softmax_pkg.sv|
+Z37 !s90 -sv|..\RTL\softmax_pkg.sv|..\RTL\softmax_exp_pla.sv|exp_debug_tb.sv|
+R15
 !i10b 1
 !s85 0
 !s101 -O0
 vexp_pla_tb
 R1
 R2
-Z36 !s100 MPDmal9dC6NZ0fT_=e2><0
-Z37 IRO9^2;lk[c06;U;2h;n`T2
-Z38 Vo7V1XJmUL1CbGV;`gNQ>F1
-Z39 !s105 exp_pla_tb_sv_unit
+Z38 !s100 MPDmal9dC6NZ0fT_=e2><0
+Z39 IRO9^2;lk[c06;U;2h;n`T2
+Z40 Vo7V1XJmUL1CbGV;`gNQ>F1
+Z41 !s105 exp_pla_tb_sv_unit
 S1
-R6
-Z40 w1771218131
-Z41 8exp_pla_tb.sv
-Z42 Fexp_pla_tb.sv
+R7
+Z42 w1771218131
+Z43 8exp_pla_tb.sv
+Z44 Fexp_pla_tb.sv
 L0 11
-R10
+R11
 r1
 31
-Z43 !s90 -sv|exp_pla_tb.sv|
-R11
-Z44 !s108 1772095331.398000
-Z45 !s107 exp_pla_tb.sv|
+Z45 !s108 1771219406.460000
+Z46 !s107 exp_pla_tb.sv|..\RTL\softmax_exp_pla.sv|..\RTL\softmax_pkg.sv|
+Z47 !s90 -sv|..\RTL\softmax_pkg.sv|..\RTL\softmax_exp_pla.sv|exp_pla_tb.sv|
+R15
 !i10b 1
 !s85 0
 !s101 -O0
 vintegration_debug_tb
 R1
-Z46 DXx4 work 11 softmax_pkg 0 22 ShoQ]6]218eA[f:X2kWXP2
-Z47 !s100 7=LHOFJRFQPQf8nd<hioI1
-Z48 IH4lR_:8MXckV8lc>O57^g3
-Z49 VRK]M7a`PUzTEG[;CWL;G42
-Z50 !s105 integration_debug_tb_sv_unit
+R2
+Z48 !s100 7=LHOFJRFQPQf8nd<hioI1
+Z49 IH4lR_:8MXckV8lc>O57^g3
+Z50 VRK]M7a`PUzTEG[;CWL;G42
+Z51 !s105 integration_debug_tb_sv_unit
 S1
-Z51 dC:\Digital_Design\AI_Accelerators_ST\BERT\Design\BERT_AI_HW_Accelerator\RTL\Softmax_Updated\TB
+R7
 Z52 w1771220619
 Z53 8integration_debug_tb.sv
 Z54 Fintegration_debug_tb.sv
 L0 6
-R10
+R11
 r1
 31
 Z55 !s108 1771220863.131000
 Z56 !s107 integration_debug_tb.sv|..\RTL\bert_softmax.sv|..\RTL\softmax_control_fsm.sv|..\RTL\softmax_normalize.sv|..\RTL\softmax_reciprocal.sv|..\RTL\softmax_accumulator.sv|..\RTL\softmax_exp_pla.sv|..\RTL\softmax_subtract.sv|..\RTL\softmax_max.sv|..\RTL\softmax_pkg.sv|
 Z57 !s90 -sv|..\RTL\softmax_pkg.sv|..\RTL\softmax_max.sv|..\RTL\softmax_subtract.sv|..\RTL\softmax_exp_pla.sv|..\RTL\softmax_accumulator.sv|..\RTL\softmax_reciprocal.sv|..\RTL\softmax_normalize.sv|..\RTL\softmax_control_fsm.sv|..\RTL\bert_softmax.sv|integration_debug_tb.sv|
-R11
+R15
 !i10b 1
 !s85 0
 !s101 -O0
 vrecip_debug_tb
 R1
 R2
-Z58 I8d7zaAR<=jzX9[jDn98Hc2
+Z58 Ie<lbn_9T3gZKo8oWG1Pj63
 Z59 VKmSG1c@ZDBk7c9R:TUfU[2
-Z60 !s105 recip_debug_tb_sv_unit
 S1
-R6
-Z61 w1772095436
-Z62 8recip_debug_tb.sv
-Z63 Frecip_debug_tb.sv
+R7
+Z60 w1771219734
+Z61 8recip_debug_tb.sv
+Z62 Frecip_debug_tb.sv
 L0 3
-R10
+R11
 r1
 31
-Z64 !s90 -sv|recip_debug_tb.sv|
-R11
-Z65 !s100 i6g4D3Xz3a=GQZA6_dnSY1
-Z66 !s108 1772095461.225000
-Z67 !s107 recip_debug_tb.sv|
+Z63 !s108 1771219749.635000
+Z64 !s107 recip_debug_tb.sv|..\RTL\softmax_reciprocal.sv|..\RTL\softmax_pkg.sv|
+Z65 !s90 -sv|..\RTL\softmax_pkg.sv|..\RTL\softmax_reciprocal.sv|recip_debug_tb.sv|
+R15
+Z66 !s100 7B<fEMeHZI9Oe;92XKid51
+Z67 !s105 recip_debug_tb_sv_unit
 !i10b 1
 !s85 0
 !s101 -O0
@@ -147,225 +148,234 @@ R2
 Z68 !s100 4U^E8W[WkU@5OMgA?Y]BZ0
 Z69 Id0^c>efL8m5o[K23So4Z]0
 Z70 VzYN:`GQf<QYd>2?4^;]CH2
+Z71 !s105 reciprocal_tb_sv_unit
 S1
-R6
-Z71 w1771218156
-Z72 8reciprocal_tb.sv
-Z73 Freciprocal_tb.sv
+R7
+Z72 w1771218156
+Z73 8reciprocal_tb.sv
+Z74 Freciprocal_tb.sv
 L0 10
-R10
+R11
 r1
 31
-R11
-Z74 !s105 reciprocal_tb_sv_unit
-Z75 !s108 1772095331.512000
-Z76 !s107 reciprocal_tb.sv|
-Z77 !s90 -sv|reciprocal_tb.sv|
+Z75 !s108 1771219981.374000
+Z76 !s107 reciprocal_tb.sv|..\RTL\softmax_reciprocal.sv|..\RTL\softmax_pkg.sv|
+Z77 !s90 -sv|..\RTL\softmax_pkg.sv|..\RTL\softmax_reciprocal.sv|reciprocal_tb.sv|
+R15
 !i10b 1
 !s85 0
 !s101 -O0
 vsoftmax_accumulator
 R1
-R2
-Z78 !s100 cFVG[hiYWh_XW68:o[I6l1
-Z79 Ih?_NN5KEIhQH2Fk=FaSQ;0
-Z80 VT:IDR@fTVD7=JYAMZmnZz0
-Z81 !s105 softmax_accumulator_sv_unit
+R16
+!i10b 1
+Z78 !s100 D;[goe3f8MIaZ_Y;Vhc8]2
+Z79 IJAE[8]I_e?lZ9ULE[Zjz13
+Vo`U7PeEfgO]I9K8@PGJa>1
+Z80 !s105 softmax_accumulator_sv_unit
 S1
-R6
-Z82 w1772093777
-Z83 8../RTL/softmax_accumulator.sv
-Z84 F../RTL/softmax_accumulator.sv
+R20
+Z81 w1771217809
+Z82 8../RTL/softmax_accumulator.sv
+Z83 F../RTL/softmax_accumulator.sv
 L0 15
-R10
+R11
 r1
+!s85 0
 31
-R23
 R24
 R25
-R11
-!i10b 1
-!s85 0
+R26
 !s101 -O0
+R15
+R27
 vsoftmax_control_fsm
 R1
-R2
-Z85 !s100 _T4Q^IDHWa_2V_5QZQ0:z2
-Z86 IkQCh1>cU@[[mJWz31gW2Q2
-Z87 VZT>F?S@PC:_a6]EgV[KWG1
-Z88 !s105 softmax_control_fsm_sv_unit
+R16
+!i10b 1
+Z84 !s100 _T4Q^IDHWa_2V_5QZQ0:z2
+Z85 IJoLTl01hA6WQLlARhjY@d2
+VGNCPoPbSfOS97ghVFg1AO0
+Z86 !s105 softmax_control_fsm_sv_unit
 S1
-R6
-Z89 w1771217902
-Z90 8../RTL/softmax_control_fsm.sv
-Z91 F../RTL/softmax_control_fsm.sv
+R20
+Z87 w1771217902
+Z88 8../RTL/softmax_control_fsm.sv
+Z89 F../RTL/softmax_control_fsm.sv
 L0 16
-R10
+R11
 r1
+!s85 0
 31
-R23
 R24
 R25
-R11
-!i10b 1
-!s85 0
+R26
 !s101 -O0
+R15
+R27
 vsoftmax_exp_pla
 R1
-R2
-Z92 ITn13PH2_^Co?aGOFj7a^K2
-Z93 VAWkMZgI]Nzl;7H`5[GBQW3
-Z94 !s105 softmax_exp_pla_sv_unit
+R16
+!i10b 1
+Z90 !s100 ETH<=>Eg`W?;<Gd;eOP?[3
+Z91 IC]o[0?OiDen@hU9E7j=J]2
+Z92 VAWkMZgI]Nzl;7H`5[GBQW3
+Z93 !s105 softmax_exp_pla_sv_unit
 S1
-R6
-Z95 w1772096465
-Z96 8../RTL/softmax_exp_pla.sv
-Z97 F../RTL/softmax_exp_pla.sv
+R20
+Z94 w1771219367
+Z95 8../RTL/softmax_exp_pla.sv
+Z96 F../RTL/softmax_exp_pla.sv
 L0 21
-R10
+R11
 r1
+!s85 0
 31
-R23
 R24
 R25
-R11
-!i10b 1
-Z98 !s100 d1_XPIHYfm2HB2HJSmga[2
-!s85 0
+R26
 !s101 -O0
+R15
+R27
 vsoftmax_max
 R1
-R2
-Z99 !s100 7dYFdd_iUJ<]K<QjNbhhZ0
-Z100 IdGg<FOKc1I>hE[c9;j?@:1
-Z101 VDG94>EU2IkgBnmC9kBIK31
-Z102 !s105 softmax_max_sv_unit
+R16
+!i10b 1
+Z97 !s100 S8fV`31`cCJ=mb=46gmNK1
+Z98 IC`9hcXYcbmoUW9_P5=;Ej2
+Vl2dhg[B]NC^GgTB7fI1B?0
+Z99 !s105 softmax_max_sv_unit
 S1
-R6
-Z103 w1772093804
-Z104 8../RTL/softmax_max.sv
-Z105 F../RTL/softmax_max.sv
+R20
+Z100 w1771220849
+Z101 8../RTL/softmax_max.sv
+Z102 F../RTL/softmax_max.sv
 L0 11
-R10
+R11
 r1
+!s85 0
 31
-R23
 R24
 R25
-R11
-!i10b 1
-!s85 0
+R26
 !s101 -O0
+R15
+R27
 vsoftmax_normalize
 R1
-R2
-Z106 !s100 hQNLclR:ZVH2OaJzDh]A^0
-Z107 INYF=7l_fV:X[3CG^^e6mV0
-Z108 Vi8U8j[ES;YlAb9m0ecI1M1
-Z109 !s105 softmax_normalize_sv_unit
+R16
+!i10b 1
+Z103 !s100 hQNLclR:ZVH2OaJzDh]A^0
+Z104 IENaHY:SVb6@4JYeXTR0bE0
+VHQJ:1>g2gbaJHM]?XOY211
+Z105 !s105 softmax_normalize_sv_unit
 S1
-R6
-Z110 w1771220082
-Z111 8../RTL/softmax_normalize.sv
-Z112 F../RTL/softmax_normalize.sv
+R20
+Z106 w1771220082
+Z107 8../RTL/softmax_normalize.sv
+Z108 F../RTL/softmax_normalize.sv
 L0 17
-R10
+R11
 r1
+!s85 0
 31
-R23
 R24
 R25
-R11
-!i10b 1
-!s85 0
+R26
 !s101 -O0
+R15
+R27
 Xsoftmax_pkg
 R1
-Z113 !s100 8HVH1XF71;J8?@?[fXT<l2
-Z114 I23`O6X6C3E1FO@G=Rfb9c1
-Z115 V23`O6X6C3E1FO@G=Rfb9c1
+!i10b 1
+!s100 WXo^ci[AdKVOP[If<d;fS0
+IF:i?_e?X@cPk;1n3P:J=42
+VF:i?_e?X@cPk;1n3P:J=42
 S1
-R6
-Z116 w1772095194
-Z117 8../RTL/softmax_pkg.sv
-Z118 F../RTL/softmax_pkg.sv
+R20
+w1772492228
+Z109 8../RTL/softmax_pkg.sv
+Z110 F../RTL/softmax_pkg.sv
 L0 8
-R10
+R11
 r1
+!s85 0
 31
-R23
 R24
 R25
-R11
-!i10b 1
-!s85 0
+R26
 !s101 -O0
+R15
+R27
 vsoftmax_reciprocal
 R1
-R2
-Z119 I<C7GX5j0f3oGj2>[o@d0a2
-Z120 V[X<^^DTbW1jzkUz90?z3?3
-Z121 !s105 softmax_reciprocal_sv_unit
+R16
+!i10b 1
+Z111 !s100 Q4ACL5SCbBd8]GGS;gVT^1
+Z112 Ia=IC9]>2LY[GC=?jZc[PY2
+Z113 V[X<^^DTbW1jzkUz90?z3?3
+Z114 !s105 softmax_reciprocal_sv_unit
 S1
-R6
-Z122 w1772096191
-Z123 8../RTL/softmax_reciprocal.sv
-Z124 F../RTL/softmax_reciprocal.sv
+R20
+Z115 w1771219935
+Z116 8../RTL/softmax_reciprocal.sv
+Z117 F../RTL/softmax_reciprocal.sv
 L0 19
-R10
+R11
 r1
+!s85 0
 31
-R23
 R24
 R25
-R11
-!i10b 1
-Z125 !s100 Q4ACL5SCbBd8]GGS;gVT^1
-!s85 0
+R26
 !s101 -O0
+R15
+R27
 vsoftmax_subtract
 R1
-R2
-Z126 !s100 P11ojQRZQB9:49ZTcQffa2
-Z127 IiGCM6f_IAm8ho]hShIfdW2
-Z128 V;PJCz7NIRIFTY0[`Fj[9[2
-Z129 !s105 softmax_subtract_sv_unit
+R16
+!i10b 1
+Z118 !s100 P11ojQRZQB9:49ZTcQffa2
+Z119 IoULF6o14:D=U33L6o]>661
+Vih8ObNML56VjcDAjT^[1O2
+Z120 !s105 softmax_subtract_sv_unit
 S1
-R6
-Z130 w1771217745
-Z131 8../RTL/softmax_subtract.sv
-Z132 F../RTL/softmax_subtract.sv
+R20
+Z121 w1771217745
+Z122 8../RTL/softmax_subtract.sv
+Z123 F../RTL/softmax_subtract.sv
 L0 11
-R10
+R11
 r1
+!s85 0
 31
-R23
 R24
 R25
-R11
-!i10b 1
-!s85 0
+R26
 !s101 -O0
+R15
+R27
 vsoftmax_top_tb
 R1
-R2
+R16
 !i10b 1
-Z133 !s100 Sbi;aTnFg<BO=mLNIb?2G3
-Z134 I<3_F:mAVUeIY:nnc3XZkb3
-Z135 V7nl0olX`Z2BlY>SO;9Lbl3
-Z136 !s105 softmax_top_tb_sv_unit
+Z124 !s100 HZ7@QB?DE>IWkeK0Fgei80
+Z125 INMih0@8TNfLUIk36GQWF;1
+Z126 V=Un5OjUIV8a<FOBBD>cbL1
+Z127 !s105 softmax_top_tb_sv_unit
 S1
-R6
-Z137 w1772095317
-Z138 8softmax_top_tb.sv
-Z139 Fsoftmax_top_tb.sv
+R20
+Z128 w1772492135
+Z129 8softmax_top_tb.sv
+Z130 Fsoftmax_top_tb.sv
 L0 12
-R10
+R11
 r1
 !s85 0
 31
-!s108 1772096503.164000
-!s107 softmax_top_tb.sv|
-Z140 !s90 -sv|softmax_top_tb.sv|
+R24
+R25
+R26
 !s101 -O0
-R11
+R15
+R27

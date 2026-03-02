@@ -41,8 +41,8 @@ PLA_XMAX    = 0.0
 PLA_H       = (PLA_XMAX - PLA_XMIN) / PLA_NSEG
 
 # Test parameters
-VEC_LEN     = 64       # BERT head dimension
-NUM_VECTORS = 10       # Number of random test vectors
+VEC_LEN     = 512      # BERT full sequence length
+NUM_VECTORS = 4        # Number of random test vectors
 SEED        = 42
 
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -294,7 +294,7 @@ for v in range(NUM_VECTORS):
         vec[0] = 0.0
     elif v == 2:
         # Edge case: linearly varying
-        vec = [i * 0.1 - 3.0 for i in range(VEC_LEN)]
+        vec = [i * 0.02 - 5.0 for i in range(VEC_LEN)]
     else:
         # Random in typical BERT range
         vec = np.random.uniform(-4.0, 4.0, VEC_LEN).tolist()

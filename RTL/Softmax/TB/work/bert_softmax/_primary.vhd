@@ -5,8 +5,8 @@ entity bert_softmax is
         VEC_LEN         : integer := 64;
         D_W             : integer := 32;
         O_W             : integer := 16;
-        MAX_LEN         : integer := 128;
-        IDX_W           : integer := 7
+        MAX_LEN         : integer := 512;
+        IDX_W           : integer := 10
     );
     port(
         clk             : in     vl_logic;

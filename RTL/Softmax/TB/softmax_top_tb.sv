@@ -16,11 +16,11 @@ module softmax_top_tb;
   //--------------------------------------------------------------------------
   // Parameters
   //--------------------------------------------------------------------------
-  parameter int VEC_LEN    = 64;
-  parameter int NUM_VECTORS = 10;
+  parameter int VEC_LEN    = 512;
+  parameter int NUM_VECTORS = 4;
   parameter int TOTAL_ELEMS = VEC_LEN * NUM_VECTORS;
   parameter int CLK_PERIOD  = 10;  // 100 MHz
-  parameter int TIMEOUT     = 500000; // Max simulation cycles
+  parameter int TIMEOUT     = 2000000; // Max simulation cycles
 
   //--------------------------------------------------------------------------
   // Signals

@@ -5,7 +5,7 @@
 //              Streaming design: accepts one Q5.26 input per clock,
 //              produces one Q1.15 unsigned output after a 3-cycle pipeline.
 //
-//              Approximation: exp(x) ~ slope[idx] * (x - x0) + exp(x0)
+//              Approximation: exp(x) ≈ slope[idx] * (x - x0) + exp(x0)
 //              where x0 = xmin + idx * h (segment start)
 //              Domain: [-16, 0], 32 segments, h = 0.5
 //              Local offset (x - x0) is always in [0, h) = [0, 0.5)
@@ -52,7 +52,7 @@ module softmax_exp_pla
   localparam signed [D_W-1:0] XMAX = 32'sd0;            // 0 in Q5.26
 
   //--------------------------------------------------------------------------
-  // ROM for slopes (w) and intercepts (b) - Q1.15 unsigned stored as 16-bit
+  // ROM for slopes (w) and intercepts (b) — Q1.15 unsigned stored as 16-bit
   // w[i] = (exp(x1) - exp(x0)) / h   where x0 = xmin + i*h, x1 = x0 + h
   // b[i] = exp(x0)                   (value at segment start)
   //--------------------------------------------------------------------------
@@ -112,7 +112,7 @@ module softmax_exp_pla
   reg [COEFF_W-1:0]     s1_w;
   reg [COEFF_W-1:0]     s1_b;
 
-  always_ff @(posedge clk or negedge rst_n) begin
+  always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       s1_valid   <= 1'b0;
       s1_x_local <= {D_W{1'b0}};
@@ -161,7 +161,7 @@ module softmax_exp_pla
   reg [PROD_W-1:0]        s2_product;
   reg [COEFF_W-1:0]       s2_b;
 
-  always_ff @(posedge clk or negedge rst_n) begin
+  always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       s2_valid   <= 1'b0;
       s2_product <= {PROD_W{1'b0}};
@@ -177,9 +177,9 @@ module softmax_exp_pla
   // Stage 2: Scale product + add intercept + output
   //--------------------------------------------------------------------------
   // product is Q6.41 (48-bit unsigned, but value < 1.0)
-  // Shift right by FRAC_I (26) -> Q6.15 unsigned
+  // Shift right by FRAC_I (26) → Q6.15 unsigned
   // Then add b (Q1.15 unsigned) = exp(x0)
-  // Result is exp(x) ~ slope*(x-x0) + exp(x0), in Q1.15
+  // Result is exp(x) ≈ slope*(x-x0) + exp(x0), in Q1.15
 
   reg [COEFF_W:0]  s2_scaled; // 17 bits for the shifted product (max ~1.0)
   reg [COEFF_W:0]  s2_sum;    // 17 bits to hold potential carry
@@ -192,14 +192,14 @@ module softmax_exp_pla
   end
 
   // Output: clamp to [0, max_Q1.15] and register
-  always_ff @(posedge clk or negedge rst_n) begin
+  always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       out_valid <= 1'b0;
       out_data  <= {O_W{1'b0}};
     end else begin
       out_valid <= s2_valid;
       if (s2_valid) begin
-        if (s2_sum[COEFF_W]) // Overflow bit set -> saturate
+        if (s2_sum[COEFF_W]) // Overflow bit set → saturate
           out_data <= {O_W{1'b1}};
         else
           out_data <= s2_sum[O_W-1:0];

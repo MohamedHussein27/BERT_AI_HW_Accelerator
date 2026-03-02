@@ -44,9 +44,8 @@ module softmax_accumulator
 
   //--------------------------------------------------------------------------
   // Internal SRAM for storing exp values
-  // Uses distributed RAM (async read is needed by normalize pipeline)
   //--------------------------------------------------------------------------
-  (* ram_style = "distributed" *) logic [I_W-1:0] exp_sram [0:MAX_LEN-1];
+  logic [I_W-1:0] exp_sram [0:MAX_LEN-1];
 
   //--------------------------------------------------------------------------
   // Registers
@@ -57,17 +56,9 @@ module softmax_accumulator
   logic [O_W-1:0]      acc;
 
   //--------------------------------------------------------------------------
-  // SRAM read port (combinational — distributed RAM)
+  // SRAM read port
   //--------------------------------------------------------------------------
   assign rd_data = exp_sram[rd_addr];
-
-  //--------------------------------------------------------------------------
-  // SRAM write port (separate from async-reset block for clean synthesis)
-  //--------------------------------------------------------------------------
-  always_ff @(posedge clk) begin
-    if (active && in_valid)
-      exp_sram[cnt] <= in_data;
-  end
 
   //--------------------------------------------------------------------------
   // Accumulation
@@ -97,6 +88,9 @@ module softmax_accumulator
         vec_len_r <= vec_len_cfg;
         acc       <= '0;
       end else if (active && in_valid) begin
+        // Store exp value in SRAM
+        exp_sram[cnt] <= in_data;
+
         // Accumulate (align and add)
         acc <= acc + in_aligned;
 

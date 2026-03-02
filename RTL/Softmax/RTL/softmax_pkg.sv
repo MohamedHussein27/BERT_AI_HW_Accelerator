@@ -24,8 +24,8 @@ package softmax_pkg;
   parameter int FRAC_NORM   = 15;          // Normalized fractional bits
 
   parameter int SEQ_LEN     = 64;          // Default vector length (BERT head dim)
-  parameter int SEQ_LEN_MAX = 128;         // Maximum supported sequence length
-  parameter int SEQ_IDX_W   = $clog2(SEQ_LEN_MAX); // Index width for addressing
+  parameter int SEQ_LEN_MAX = 512;         // Maximum supported sequence length
+  parameter int SEQ_IDX_W   = $clog2(SEQ_LEN_MAX + 1); // Index width (must hold value SEQ_LEN_MAX)
 
   //--------------------------------------------------------------------------
   // PLA Exponential Parameters
@@ -64,10 +64,8 @@ package softmax_pkg;
   } sm_state_t;
 
   //--------------------------------------------------------------------------
-  // Helper Functions (simulation only - not synthesizable)
+  // Helper Functions
   //--------------------------------------------------------------------------
-  // synthesis translate_off
-  `ifndef SYNTHESIS
 
   // Convert real to Q5.26 signed 32-bit (for simulation only)
   function automatic logic [DATA_W-1:0] real_to_q526(input real val);
@@ -85,8 +83,5 @@ package softmax_pkg;
   function automatic real q824_to_real(input logic [ACC_W-1:0] val);
     return real'(val) / real'(1 << FRAC_ACC);
   endfunction
-
-  `endif
-  // synthesis translate_on
 
 endpackage

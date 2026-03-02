@@ -13,50 +13,32 @@
 # run -all 
 # ============================================================
 #   BERT Softmax Integration Testbench
-#   VEC_LEN=64, NUM_VECTORS=10
+#   VEC_LEN=512, NUM_VECTORS=4
 # ============================================================
 # 
 # --- Vector 0 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
+#   Outputs: 512, MSE: 7.671211e-005, MaxErr: 0.0088, Cycles: 1044
 #   >>> PASS <<<
 # --- Vector 1 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
+#   Outputs: 512, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 1044
 #   >>> PASS <<<
 # --- Vector 2 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
+#   Outputs: 512, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 1044
 #   >>> PASS <<<
 # --- Vector 3 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
-#   >>> PASS <<<
-# --- Vector 4 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
-#   >>> PASS <<<
-# --- Vector 5 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
-#   >>> PASS <<<
-# --- Vector 6 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
-#   >>> PASS <<<
-# --- Vector 7 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
-#   >>> PASS <<<
-# --- Vector 8 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
-#   >>> PASS <<<
-# --- Vector 9 ---
-#   Outputs: 64, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 148
+#   Outputs: 512, MSE: 0.000000e+000, MaxErr: 0.0000, Cycles: 1044
 #   >>> PASS <<<
 # 
 # ============================================================
 #   Integration Test Summary
 # ============================================================
-#   Vectors tested:      10
-#   Vectors passed:      10
+#   Vectors tested:      4
+#   Vectors passed:      4
 #   Vectors failed:      0
-#   Total elements:      640
-#   Overall MSE:         0.000000e+000
-#   Overall Max Error:   0.000000
+#   Total elements:      2048
+#   Overall MSE:         1.917803e-005
+#   Overall Max Error:   0.008759
 # ============================================================
 #   >>> ALL VECTORS PASSED <<<
 # ** Note: $finish    : softmax_top_tb.sv(231)
-#    Time: 22845 ns  Iteration: 1  Instance: /softmax_top_tb
+#    Time: 62985 ns  Iteration: 1  Instance: /softmax_top_tb

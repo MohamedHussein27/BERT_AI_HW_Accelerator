@@ -8,8 +8,8 @@ entity softmax_normalize is
         FRAC_R          : integer := 24;
         OUT_WIDTH       : integer := 16;
         FRAC_OUT        : integer := 15;
-        MAX_LEN         : integer := 128;
-        IDX_W           : integer := 7
+        MAX_LEN         : integer := 512;
+        IDX_W           : integer := 10
     );
     port(
         clk             : in     vl_logic;

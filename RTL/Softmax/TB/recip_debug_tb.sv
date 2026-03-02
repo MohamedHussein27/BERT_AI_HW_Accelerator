@@ -26,7 +26,7 @@ module recip_debug_tb;
   // Monitor all internal signals every clock
   always @(posedge clk) begin
     $display("  t=%0t state=%0d a=0x%08h y=0x%08h mul_ay=0x%016h sub=0x%08h out_v=%b out_d=0x%08h",
-             $time, dut.state, dut.a_norm, dut.y_reg,
+             $time, dut.state, dut.a_reg, dut.y_reg,
              dut.mul_ay_reg, dut.sub_reg,
              dut.out_valid, dut.out_data);
   end
