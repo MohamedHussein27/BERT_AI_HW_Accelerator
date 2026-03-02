@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
-module tb_fetch_bram_FFN_intermediate_O;
+module tb_fetch_bram_FFN_W_B_I;
 
-    parameter ADDR_WIDTH       = 16;
+    parameter ADDR_WIDTH       = 15;
     parameter ORIGINAL_COLUMNS = 768;
     parameter ORIGINAL_ROWS    = 512;
     parameter NUM_BITS         = 8;
@@ -13,7 +13,7 @@ module tb_fetch_bram_FFN_intermediate_O;
     reg [3:0] Buffer_Select;
     reg Tiles_Control;
     reg ena, wea;
-    reg [15:0] addra;
+    reg [ADDR_WIDTH-1:0] addra;
     reg [DATA_WIDTH-1:0] dina;
 
     wire fetch_done;
@@ -32,7 +32,7 @@ module tb_fetch_bram_FFN_intermediate_O;
     // =====================
     // DUT
     // =====================
-    fetch_bram_FFN_intermediate_O_top #(
+    fetch_bram_FFN_W_B_I_top #(
         .ADDR_WIDTH(ADDR_WIDTH),
         .ORIGINAL_COLUMNS(ORIGINAL_COLUMNS),
         .ORIGINAL_ROWS(ORIGINAL_ROWS),
@@ -61,6 +61,9 @@ module tb_fetch_bram_FFN_intermediate_O;
 
     integer i;
 
+    // =====================
+    // Stimulus
+    // =====================
     initial begin
 
         // Reset
@@ -71,26 +74,21 @@ module tb_fetch_bram_FFN_intermediate_O;
         wea = 0;
         addra = 0;
         dina = 0;
-        Buffer_Select = 4'b1100;   // FFN_Intermediate
+        Buffer_Select = 4'b1001;
         Tiles_Control = 1'b1;
-        Double_buffering = 0;
+        Double_buffering = 1'b0;
 
         repeat(5) @(negedge clk);
         rst_n = 1;
         ena = 1;
 
-        // Reset internal pointer
-        reset_addr_counter = 1;
-        repeat(2) @(negedge clk);
-        reset_addr_counter = 0;
-
         // =====================
         // Write BRAM
         // =====================
-        $display("Writing FFN_intermediate_O_buffer...");
-        for (i = 0; i < 20000; i = i + 1) begin
+        $display("Writing FFN_W_B_I_buffer...");
+        for (i = 0; i < 24736; i = i + 1) begin
             wea  = 1;
-            dina = i + 32'h5000;
+            dina = i + 32'h1000;
             @(negedge clk);
             addra = addra + 1;
         end
@@ -99,33 +97,66 @@ module tb_fetch_bram_FFN_intermediate_O;
         repeat(5) @(negedge clk);
 
         // =====================
-        // Fetch Intermediate
+        // Fetch 1
         // =====================
-        $display("Fetching FFN Intermediate...");
+        $display("Starting FFN fetch...");
         start_fetch = 1;
         @(negedge clk);
         start_fetch = 0;
 
         wait(fetch_done);
-        $display("Intermediate fetch done at time %0t", $time);
-
-        // =====================
-        // Fetch O buffer
-        // =====================
-        Buffer_Select = 4'b1101;   // O_buffer
+        $display("Fetch done at time %0t", $time);
+        
+        repeat(2) @(negedge clk);
         reset_addr_counter = 1;
         repeat(2) @(negedge clk);
         reset_addr_counter = 0;
+        Double_buffering = 1'b1;
 
-        $display("Fetching O buffer...");
+        $display("Starting double-buffer FFN fetch...");
         start_fetch = 1;
         @(negedge clk);
         start_fetch = 0;
 
         wait(fetch_done);
-        $display("O buffer fetch done at time %0t", $time);
+        $display("Double-buffer FFN fetch done at time %0t", $time);
 
-        repeat(5) @(negedge clk);
+        // =====================
+        // Change tiling mode
+        // =====================
+        reset_addr_counter = 1;
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 0;
+        Buffer_Select = 4'b1011;
+        Tiles_Control = 1'b0;
+        Double_buffering = 1'b0;
+
+        $display("Starting second FFN fetch...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+
+        wait(fetch_done);
+        $display("Second fetch done at time %0t", $time);
+
+        // =====================
+        // Double buffering test
+        // =====================
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 1;
+        repeat(2) @(negedge clk);
+        reset_addr_counter = 0;
+        Double_buffering = 1'b1;
+
+        $display("Starting double-buffer FFN fetch...");
+        start_fetch = 1;
+        @(negedge clk);
+        start_fetch = 0;
+
+        wait(fetch_done);
+        $display("Double-buffer FFN fetch done at time %0t", $time);
+
+        repeat(2) @(negedge clk);
         $stop;
     end
 

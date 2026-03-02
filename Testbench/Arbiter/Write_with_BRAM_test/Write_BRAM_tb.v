@@ -1,6 +1,8 @@
 `timescale 1ns/1ps
 module tb_write_bram;
-
+    parameter ADDR_WIDTH          = 16;
+    parameter MAX_DEPTH           = 36864; // max depth of the BRAM
+    
     // System signals
     reg clk, rst_n;
     reg start_write, reset_addr_counter;
@@ -15,6 +17,7 @@ module tb_write_bram;
 
     // Status
     wire write_done;
+    wire busy;
     wire [15:0] current_addr;
 
     // Clock generation
@@ -24,7 +27,10 @@ module tb_write_bram;
     end
 
     // DUT
-    write_bram_top u_top (
+    write_bram_top #(
+         .ADDR_WIDTH (ADDR_WIDTH),
+         .MAX_DEPTH (MAX_DEPTH)      // max depth of the BRAM 
+        ) u_top (
         .clk(clk),
         .rst_n(rst_n),
 
@@ -38,6 +44,7 @@ module tb_write_bram;
         .doutb(doutb),
 
         .write_done(write_done),
+        .busy(busy),
         .current_addr(current_addr)
     );
 
@@ -60,7 +67,7 @@ module tb_write_bram;
         rst_n = 1;
         start_write = 1;
         // =====================
-        // 1ï¸?âƒ£ Simulate SA writing 16 tiles (NUM_WRITES_PER_TILE)
+        // Simulate SA writing 16 tiles (NUM_WRITES_PER_TILE)
         // =====================
         $display("\n--- Writing data to BRAM via write logic ---");
         
@@ -72,9 +79,8 @@ module tb_write_bram;
             expected_data[i] = sa_out_data;
             
             @(negedge clk);
-            if(i==0) start_write = 0;
         end
-        
+        start_write = 0;
         //wait(write_done);
         $display("âœ… Write done for tile %0d, address=%0d, data=%h", i, current_addr, sa_out_data);
         // Start writing this tile
@@ -84,7 +90,7 @@ module tb_write_bram;
         #100;
 
         // =====================
-        // 2ï¸?âƒ£ Read back & verify written data
+        // Read back & verify written data
         // =====================
         $display("\n--- Reading back from BRAM and verifying ---");
         read_en = 1;
@@ -97,9 +103,9 @@ module tb_write_bram;
             #2; // allow BRAM output to settle
 
             if (doutb === expected_data[i])
-                $display("âœ… Readback OK at addr %0d : %h", read_addr, doutb);
+                $display("ï¿½ Readback OK at addr %0d : %h", read_addr, doutb);
             else begin
-                $display("â?Œ MISMATCH at addr %0d", read_addr);
+                $display("MISMATCH at addr %0d", read_addr);
                 $display("   Expected: %h", expected_data[i]);
                 $display("   Got     : %h", doutb);
             end

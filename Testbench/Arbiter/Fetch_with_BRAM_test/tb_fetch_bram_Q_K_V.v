@@ -158,7 +158,7 @@ module tb_fetch_bram_Q_K_V;
 
         // changing the buffer and no. of tiles
         Buffer_Select = 3'b101; // choosing the V buffer
-        Tiles_Control = 1'b0;   // tiling 512
+        Tiles_Control = 1'b1;   // tiling 32
 
         reset_addr_counter = 1; // to reset the counter (we will reset here as we want to start from begining)
         
