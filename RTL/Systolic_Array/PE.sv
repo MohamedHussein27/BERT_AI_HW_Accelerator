@@ -18,9 +18,6 @@ module PE #(
     (* use_dsp = "yes" *) logic signed [DATAWIDTH_output-1:0] mac_out;
 
     logic signed [(DATAWIDTH)-1:0] weight;
-
-    // Synchronous reset — allows the accumulator register to live
-    // inside the DSP48 P-register (async reset blocks DSP inference)
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             mac_out <= '0;

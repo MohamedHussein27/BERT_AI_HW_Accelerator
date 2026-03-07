@@ -11,10 +11,10 @@ module systolic_top #(
     parameter num_of_raws = 512,
     parameter BUS_WIDTH = 256, // N_SIZE * DATAWIDTH
     parameter ADDR_WIDTH  = 10,
-    parameter DEPTH = 543
+    parameter DEPTH = 512
 ) (
-    input  logic [BUS_WIDTH-1:0] in_A,
-    input  logic [BUS_WIDTH-1:0] weights,
+    input  logic signed [BUS_WIDTH-1:0] in_A,
+    input  logic signed [BUS_WIDTH-1:0] weights,
     input  logic clk,
     input  logic rst_n,
     input  logic valid_in,
@@ -38,6 +38,7 @@ module systolic_top #(
 
     logic signed [DATAWIDTH-1:0] in_A_wire [N_SIZE-1:0];
     logic signed [(DATAWIDTH)-1:0] skew_out_wire[N_SIZE-1:0];
+    logic signed [DATAWIDTH_output-1:0] deskew_out_wire[N_SIZE-1:0];
 
     logic signed [DATAWIDTH_output - 1:0] in_B_wire [N_SIZE-1:0];
     logic signed [DATAWIDTH-1:0] wt_wire [N_SIZE-1:0];
@@ -45,12 +46,13 @@ module systolic_top #(
     
     logic signed [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_output;
     logic signed [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_intput;
+    logic signed [(DATAWIDTH_output*N_SIZE)-1:0] outbuffer_intput;
     logic signed [DATAWIDTH_output-1:0] out_C_wire [N_SIZE-1:0];
 
 
     assign we_outbuffer_wire = (last_tile) ? we : 0; 
 
-    genvar i, j, k, p;
+    genvar i, j, k, p, f;
     generate
         for (i = 0; i < N_SIZE; i = i + 1 ) begin
             assign in_A_wire[i] = in_A[i*DATAWIDTH +: DATAWIDTH];
@@ -63,6 +65,10 @@ module systolic_top #(
         for (k = 0; k < N_SIZE; k = k + 1 ) begin
             assign interbuffer_intput[k*DATAWIDTH_output +: DATAWIDTH_output] = out_C_wire[k];
         end      
+
+        for (f = 0; f < N_SIZE; f = f + 1 ) begin
+            assign outbuffer_intput[f*DATAWIDTH_output +: DATAWIDTH_output] = deskew_out_wire[f];
+        end 
 
         for (p = 0; p < N_SIZE; p = p + 1 ) begin
             assign wt_wire[p] = weights[p*DATAWIDTH +: DATAWIDTH];
@@ -81,6 +87,7 @@ module systolic_top #(
         .rst_n(rst_n),
         .valid_in(valid_in),
         .load_weight(load_weight),
+        .last_tile(last_tile),
         .sys_wt_en(sys_wt_en),
         .we(we),
         .rd_addr(rd_addr),
@@ -117,11 +124,24 @@ module systolic_top #(
         .wt_row_sel(wt_row_sel),
         .matrix_C (out_C_wire)
     );
+    // deskew buffer
+    deskew_buffer #(
+        .DATAWIDTH_output(DATAWIDTH_output),
+        .N_SIZE(N_SIZE)
+    ) u_deskew_buffer (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .valid_in (valid_in),
+        .data_in  (out_C_wire),
+        .data_out (deskew_out_wire)
+    );
+
+
     // partial sum buffer
     systolic_internal_buffer #(
         .DATAWIDTH_output(DATAWIDTH_output),
         .N_SIZE(N_SIZE),
-        .DEPTH(DEPTH),
+        .DEPTH(DEPTH + N_SIZE - 1),
         .ADDR_WIDTH(ADDR_WIDTH)
     ) partial_sum_buffer (
         .clk     (clk),
@@ -142,7 +162,7 @@ module systolic_top #(
         .we      (we_outbuffer_wire),
         .rd_addr (rd_addr_outbuffer),
         .wr_addr (wr_addr),
-        .in_data (interbuffer_intput),
+        .in_data (outbuffer_intput),
         .out_data(out_data_outbuffer)
     );
 endmodule

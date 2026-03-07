@@ -9,6 +9,7 @@ module systolic_controller #(
     input  logic rst_n,
     input  logic valid_in,
     input  logic load_weight,
+    input  logic last_tile,
 
     // Control signals to the Systolic Array
     output logic sys_wt_en,
@@ -22,12 +23,12 @@ module systolic_controller #(
     output logic busy,
     output logic done
 );
-
+    
     localparam [1:0] IDLE = 2'b00;
     localparam [1:0] LOADING_WEIGHT = 2'b01;
     localparam [1:0] COMPUTE = 2'b10;
 
-    localparam count_bits = $clog2(num_of_raws + 2*N_SIZE);
+    localparam count_bits = $clog2(num_of_raws + 3*N_SIZE);
     localparam wt_count_bits = $clog2(N_SIZE);
 
     logic [1:0] cs, ns;
@@ -60,8 +61,13 @@ module systolic_controller #(
             end
 
             COMPUTE: begin
-                if (cycle_cnt == num_of_raws + 2*N_SIZE - 2)
-                    ns = IDLE;
+                if (last_tile) begin
+                    if (cycle_cnt == num_of_raws + 3*N_SIZE - 3)
+                        ns = IDLE;
+                end else begin
+                    if (cycle_cnt == num_of_raws + 2*N_SIZE - 2)
+                        ns = IDLE;
+                end
             end
 
             default: ns = IDLE;
@@ -95,7 +101,8 @@ module systolic_controller #(
                 sys_wt_en = 1'b0;
                 rd_addr   = rd_addr_reg + 1;
                 wr_addr   = wr_addr_reg;
-                we   = (cycle_cnt >= N_SIZE-1) && (cycle_cnt < num_of_raws + 2*N_SIZE - 2);
+                we   = (cycle_cnt >= ((last_tile)? 2*N_SIZE-2:N_SIZE-1)) && 
+                       (cycle_cnt <num_of_raws + 2*N_SIZE - 2);
                 done = (cycle_cnt == num_of_raws + 2*N_SIZE - 2);
                 busy  = 1'b1;
                 ready = 1'b0;
