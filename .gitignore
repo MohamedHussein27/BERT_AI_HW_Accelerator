@@ -1,0 +1,4 @@
+
+# gitignore for quantization module questa files
+RTL/Quantization/work/
+RTL/Quantization/quantization_module.mpf
