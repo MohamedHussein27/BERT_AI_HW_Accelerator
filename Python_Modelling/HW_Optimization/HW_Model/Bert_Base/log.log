@@ -1,198 +1,234 @@
- bert.embeddings.word_embeddings.weight: weight_scale=4.181581e-02, input_scale=1.0 (default)
-  bert.embeddings.position_embeddings.weight: weight_scale=4.181966e-02, input_scale=1.0 (default)
-  bert.embeddings.token_type_embeddings.weight: weight_scale=2.651260e-02, input_scale=1.0 (default)
-  bert.embeddings.LayerNorm.bias: FP32 (fallback)
-  bert.encoder.layers.0.attention.q.weight: weight_scale=2.832260e-04, input_scale=3.519799e-02
-  bert.encoder.layers.0.attention.q.bias: INT32, bias_scale=9.968985e-06
-  bert.encoder.layers.0.attention.k.weight: weight_scale=2.832256e-04, input_scale=3.519799e-02
-  bert.encoder.layers.0.attention.k.bias: INT32, bias_scale=9.968971e-06
-  bert.encoder.layers.0.attention.v.weight: weight_scale=4.135189e-04, input_scale=3.519799e-02
-  bert.encoder.layers.0.attention.v.bias: INT32, bias_scale=1.455503e-05
-  bert.encoder.layers.0.attention.out.weight: weight_scale=3.802003e-04, input_scale=7.601105e-03
-  bert.encoder.layers.0.attention.out.bias: INT32, bias_scale=2.889942e-06
-  bert.encoder.layers.0.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.0.ffn.dense_1.weight: weight_scale=5.043435e-04, input_scale=3.291728e-02
-  bert.encoder.layers.0.ffn.dense_1.bias: INT32, bias_scale=1.660162e-05
-  bert.encoder.layers.0.ffn.dense_2.weight: weight_scale=3.107885e-04, input_scale=1.735687e-02
-  bert.encoder.layers.0.ffn.dense_2.bias: INT32, bias_scale=5.394316e-06
-  bert.encoder.layers.0.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.1.attention.q.weight: weight_scale=2.832260e-04, input_scale=3.607632e-02
-  bert.encoder.layers.1.attention.q.bias: INT32, bias_scale=1.021775e-05
-  bert.encoder.layers.1.attention.k.weight: weight_scale=2.832256e-04, input_scale=3.607632e-02
-  bert.encoder.layers.1.attention.k.bias: INT32, bias_scale=1.021774e-05
-  bert.encoder.layers.1.attention.v.weight: weight_scale=3.697183e-04, input_scale=3.607632e-02
-  bert.encoder.layers.1.attention.v.bias: INT32, bias_scale=1.333808e-05
-  bert.encoder.layers.1.attention.out.weight: weight_scale=3.699003e-04, input_scale=7.090611e-03
-  bert.encoder.layers.1.attention.out.bias: INT32, bias_scale=2.622819e-06
-  bert.encoder.layers.1.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.1.ffn.dense_1.weight: weight_scale=4.781024e-04, input_scale=3.453636e-02
-  bert.encoder.layers.1.ffn.dense_1.bias: INT32, bias_scale=1.651191e-05
-  bert.encoder.layers.1.ffn.dense_2.weight: weight_scale=3.172742e-04, input_scale=1.740684e-02
-  bert.encoder.layers.1.ffn.dense_2.bias: INT32, bias_scale=5.522743e-06
-  bert.encoder.layers.1.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.2.attention.q.weight: weight_scale=2.832260e-04, input_scale=3.679794e-02
-  bert.encoder.layers.2.attention.q.bias: INT32, bias_scale=1.042213e-05
-  bert.encoder.layers.2.attention.k.weight: weight_scale=2.832260e-04, input_scale=3.679794e-02
-  bert.encoder.layers.2.attention.k.bias: INT32, bias_scale=1.042213e-05
-  bert.encoder.layers.2.attention.v.weight: weight_scale=3.636196e-04, input_scale=3.679794e-02
-  bert.encoder.layers.2.attention.v.bias: INT32, bias_scale=1.338045e-05
-  bert.encoder.layers.2.attention.out.weight: weight_scale=3.595748e-04, input_scale=8.245048e-03
-  bert.encoder.layers.2.attention.out.bias: INT32, bias_scale=2.964711e-06
-  bert.encoder.layers.2.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.2.ffn.dense_1.weight: weight_scale=4.412578e-04, input_scale=3.572244e-02
-  bert.encoder.layers.2.ffn.dense_1.bias: INT32, bias_scale=1.576280e-05
-  bert.encoder.layers.2.ffn.dense_2.weight: weight_scale=3.151432e-04, input_scale=1.931644e-02
-  bert.encoder.layers.2.ffn.dense_2.bias: INT32, bias_scale=6.087444e-06
-  bert.encoder.layers.2.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.3.attention.q.weight: weight_scale=2.832250e-04, input_scale=3.728846e-02
-  bert.encoder.layers.3.attention.q.bias: INT32, bias_scale=1.056102e-05
-  bert.encoder.layers.3.attention.k.weight: weight_scale=2.832259e-04, input_scale=3.728846e-02
-  bert.encoder.layers.3.attention.k.bias: INT32, bias_scale=1.056106e-05
-  bert.encoder.layers.3.attention.v.weight: weight_scale=3.676819e-04, input_scale=3.728846e-02
-  bert.encoder.layers.3.attention.v.bias: INT32, bias_scale=1.371029e-05
-  bert.encoder.layers.3.attention.out.weight: weight_scale=3.685238e-04, input_scale=8.987036e-03
-  bert.encoder.layers.3.attention.out.bias: INT32, bias_scale=3.311937e-06
-  bert.encoder.layers.3.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.3.ffn.dense_1.weight: weight_scale=4.403266e-04, input_scale=3.433684e-02
-  bert.encoder.layers.3.ffn.dense_1.bias: INT32, bias_scale=1.511943e-05
-  bert.encoder.layers.3.ffn.dense_2.weight: weight_scale=3.094619e-04, input_scale=1.803646e-02
-  bert.encoder.layers.3.ffn.dense_2.bias: INT32, bias_scale=5.581597e-06
-  bert.encoder.layers.3.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.4.attention.q.weight: weight_scale=2.832256e-04, input_scale=3.645198e-02
-  bert.encoder.layers.4.attention.q.bias: INT32, bias_scale=1.032413e-05
-  bert.encoder.layers.4.attention.k.weight: weight_scale=2.832255e-04, input_scale=3.645198e-02
-  bert.encoder.layers.4.attention.k.bias: INT32, bias_scale=1.032413e-05
-  bert.encoder.layers.4.attention.v.weight: weight_scale=3.686613e-04, input_scale=3.645198e-02
-  bert.encoder.layers.4.attention.v.bias: INT32, bias_scale=1.343844e-05
-  bert.encoder.layers.4.attention.out.weight: weight_scale=3.662939e-04, input_scale=1.015237e-02
-  bert.encoder.layers.4.attention.out.bias: INT32, bias_scale=3.718750e-06
-  bert.encoder.layers.4.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.4.ffn.dense_1.weight: weight_scale=4.332463e-04, input_scale=3.436609e-02
-  bert.encoder.layers.4.ffn.dense_1.bias: INT32, bias_scale=1.488898e-05
-  bert.encoder.layers.4.ffn.dense_2.weight: weight_scale=3.095927e-04, input_scale=1.928540e-02
-  bert.encoder.layers.4.ffn.dense_2.bias: INT32, bias_scale=5.970620e-06
-  bert.encoder.layers.4.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.5.attention.q.weight: weight_scale=2.832262e-04, input_scale=3.657131e-02
-  bert.encoder.layers.5.attention.q.bias: INT32, bias_scale=1.035795e-05
-  bert.encoder.layers.5.attention.k.weight: weight_scale=2.832257e-04, input_scale=3.657131e-02
-  bert.encoder.layers.5.attention.k.bias: INT32, bias_scale=1.035793e-05
-  bert.encoder.layers.5.attention.v.weight: weight_scale=3.563452e-04, input_scale=3.657131e-02
-  bert.encoder.layers.5.attention.v.bias: INT32, bias_scale=1.303201e-05
-  bert.encoder.layers.5.attention.out.weight: weight_scale=3.485074e-04, input_scale=1.048699e-02
-  bert.encoder.layers.5.attention.out.bias: INT32, bias_scale=3.654792e-06
-  bert.encoder.layers.5.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.5.ffn.dense_1.weight: weight_scale=4.238109e-04, input_scale=3.602750e-02
-  bert.encoder.layers.5.ffn.dense_1.bias: INT32, bias_scale=1.526884e-05
-  bert.encoder.layers.5.ffn.dense_2.weight: weight_scale=2.690555e-04, input_scale=2.149419e-02
-  bert.encoder.layers.5.ffn.dense_2.bias: INT32, bias_scale=5.783130e-06
-  bert.encoder.layers.5.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.6.attention.q.weight: weight_scale=2.832258e-04, input_scale=3.855337e-02
-  bert.encoder.layers.6.attention.q.bias: INT32, bias_scale=1.091931e-05
-  bert.encoder.layers.6.attention.k.weight: weight_scale=2.832260e-04, input_scale=3.855337e-02
-  bert.encoder.layers.6.attention.k.bias: INT32, bias_scale=1.091932e-05
-  bert.encoder.layers.6.attention.v.weight: weight_scale=3.493413e-04, input_scale=3.855337e-02
-  bert.encoder.layers.6.attention.v.bias: INT32, bias_scale=1.346828e-05
-  bert.encoder.layers.6.attention.out.weight: weight_scale=3.509545e-04, input_scale=1.144609e-02
-  bert.encoder.layers.6.attention.out.bias: INT32, bias_scale=4.017056e-06
-  bert.encoder.layers.6.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.6.ffn.dense_1.weight: weight_scale=4.084746e-04, input_scale=3.883529e-02
-  bert.encoder.layers.6.ffn.dense_1.bias: INT32, bias_scale=1.586323e-05
-  bert.encoder.layers.6.ffn.dense_2.weight: weight_scale=2.715988e-04, input_scale=3.212239e-02
-  bert.encoder.layers.6.ffn.dense_2.bias: INT32, bias_scale=8.724402e-06
-  bert.encoder.layers.6.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.7.attention.q.weight: weight_scale=2.832251e-04, input_scale=4.173842e-02
-  bert.encoder.layers.7.attention.q.bias: INT32, bias_scale=1.182137e-05
-  bert.encoder.layers.7.attention.k.weight: weight_scale=2.832257e-04, input_scale=4.173842e-02
-  bert.encoder.layers.7.attention.k.bias: INT32, bias_scale=1.182139e-05
-  bert.encoder.layers.7.attention.v.weight: weight_scale=3.386841e-04, input_scale=4.173842e-02
-  bert.encoder.layers.7.attention.v.bias: INT32, bias_scale=1.413614e-05
-  bert.encoder.layers.7.attention.out.weight: weight_scale=3.514834e-04, input_scale=1.049317e-02
-  bert.encoder.layers.7.attention.out.bias: INT32, bias_scale=3.688174e-06
-  bert.encoder.layers.7.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.7.ffn.dense_1.weight: weight_scale=4.154920e-04, input_scale=4.221771e-02
-  bert.encoder.layers.7.ffn.dense_1.bias: INT32, bias_scale=1.754112e-05
-  bert.encoder.layers.7.ffn.dense_2.weight: weight_scale=2.561781e-04, input_scale=3.117211e-02
-  bert.encoder.layers.7.ffn.dense_2.bias: INT32, bias_scale=7.985610e-06
-  bert.encoder.layers.7.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.8.attention.q.weight: weight_scale=2.832261e-04, input_scale=4.614844e-02
-  bert.encoder.layers.8.attention.q.bias: INT32, bias_scale=1.307044e-05
-  bert.encoder.layers.8.attention.k.weight: weight_scale=2.832258e-04, input_scale=4.614844e-02
-  bert.encoder.layers.8.attention.k.bias: INT32, bias_scale=1.307043e-05
-  bert.encoder.layers.8.attention.v.weight: weight_scale=3.516475e-04, input_scale=4.614844e-02
-  bert.encoder.layers.8.attention.v.bias: INT32, bias_scale=1.622798e-05
-  bert.encoder.layers.8.attention.out.weight: weight_scale=3.433030e-04, input_scale=1.136023e-02
-  bert.encoder.layers.8.attention.out.bias: INT32, bias_scale=3.900002e-06
-  bert.encoder.layers.8.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.8.ffn.dense_1.weight: weight_scale=4.072320e-04, input_scale=4.737307e-02
-  bert.encoder.layers.8.ffn.dense_1.bias: INT32, bias_scale=1.929183e-05
-  bert.encoder.layers.8.ffn.dense_2.weight: weight_scale=2.544782e-04, input_scale=3.400421e-02
-  bert.encoder.layers.8.ffn.dense_2.bias: INT32, bias_scale=8.653330e-06
-  bert.encoder.layers.8.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.9.attention.q.weight: weight_scale=2.832242e-04, input_scale=5.220258e-02
-  bert.encoder.layers.9.attention.q.bias: INT32, bias_scale=1.478504e-05
-  bert.encoder.layers.9.attention.k.weight: weight_scale=2.832256e-04, input_scale=5.220258e-02
-  bert.encoder.layers.9.attention.k.bias: INT32, bias_scale=1.478511e-05
-  bert.encoder.layers.9.attention.v.weight: weight_scale=3.548148e-04, input_scale=5.220258e-02
-  bert.encoder.layers.9.attention.v.bias: INT32, bias_scale=1.852225e-05
-  bert.encoder.layers.9.attention.out.weight: weight_scale=3.498371e-04, input_scale=1.271933e-02
-  bert.encoder.layers.9.attention.out.bias: INT32, bias_scale=4.449694e-06
-  bert.encoder.layers.9.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.9.ffn.dense_1.weight: weight_scale=3.855128e-04, input_scale=5.020457e-02
-  bert.encoder.layers.9.ffn.dense_1.bias: INT32, bias_scale=1.935450e-05
-  bert.encoder.layers.9.ffn.dense_2.weight: weight_scale=2.619570e-04, input_scale=3.118199e-02
-  bert.encoder.layers.9.ffn.dense_2.bias: INT32, bias_scale=8.168340e-06
-  bert.encoder.layers.9.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.10.attention.q.weight: weight_scale=2.832256e-04, input_scale=5.598552e-02
-  bert.encoder.layers.10.attention.q.bias: INT32, bias_scale=1.585653e-05
-  bert.encoder.layers.10.attention.k.weight: weight_scale=2.832259e-04, input_scale=5.598552e-02
-  bert.encoder.layers.10.attention.k.bias: INT32, bias_scale=1.585655e-05
-  bert.encoder.layers.10.attention.v.weight: weight_scale=3.443152e-04, input_scale=5.598552e-02
-  bert.encoder.layers.10.attention.v.bias: INT32, bias_scale=1.927666e-05
-  bert.encoder.layers.10.attention.out.weight: weight_scale=3.457906e-04, input_scale=1.374196e-02
-  bert.encoder.layers.10.attention.out.bias: INT32, bias_scale=4.751842e-06
-  bert.encoder.layers.10.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.10.ffn.dense_1.weight: weight_scale=3.820991e-04, input_scale=5.439724e-02
-  bert.encoder.layers.10.ffn.dense_1.bias: INT32, bias_scale=2.078514e-05
-  bert.encoder.layers.10.ffn.dense_2.weight: weight_scale=2.412350e-04, input_scale=3.190585e-02
-  bert.encoder.layers.10.ffn.dense_2.bias: INT32, bias_scale=7.696806e-06
-  bert.encoder.layers.10.ffn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.11.attention.q.weight: weight_scale=2.832258e-04, input_scale=5.735484e-02
-  bert.encoder.layers.11.attention.q.bias: INT32, bias_scale=1.624437e-05
-  bert.encoder.layers.11.attention.k.weight: weight_scale=2.832261e-04, input_scale=5.735484e-02
-  bert.encoder.layers.11.attention.k.bias: INT32, bias_scale=1.624439e-05
-  bert.encoder.layers.11.attention.v.weight: weight_scale=3.473219e-04, input_scale=5.735484e-02
-  bert.encoder.layers.11.attention.v.bias: INT32, bias_scale=1.992060e-05
-  bert.encoder.layers.11.attention.out.weight: weight_scale=3.584725e-04, input_scale=1.426005e-02
-  bert.encoder.layers.11.attention.out.bias: INT32, bias_scale=5.111834e-06
-  bert.encoder.layers.11.attn_layer_norm.bias: FP32 (fallback)
-  bert.encoder.layers.11.ffn.dense_1.weight: weight_scale=3.978995e-04, input_scale=4.910828e-02
-  bert.encoder.layers.11.ffn.dense_1.bias: INT32, bias_scale=1.954016e-05
-  bert.encoder.layers.11.ffn.dense_2.weight: weight_scale=2.608449e-04, input_scale=2.382349e-02
-  bert.encoder.layers.11.ffn.dense_2.bias: INT32, bias_scale=6.214236e-06
-  bert.encoder.layers.11.ffn_layer_norm.bias: FP32 (fallback)
-  bert.pooler.weight: weight_scale=3.296595e-04, input_scale=1.0 (default)
-  bert.pooler.bias: INT32, bias_scale=3.296595e-04
-  classifier.weight: weight_scale=2.791923e-04, input_scale=7.824770e-03
-  classifier.bias: INT32, bias_scale=2.184615e-06
+  WEIGHT SCALES (77)
+  bert.embeddings.position_embeddings.weight.scale  shape=()  dtype=float32  value=0.0380955
+  bert.embeddings.token_type_embeddings.weight.scale  shape=()  dtype=float32  value=0.025583
+  bert.embeddings.word_embeddings.weight.scale  shape=()  dtype=float32  value=0.0416539
+  bert.encoder.layers.0.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.0.attention.out.weight.scale  shape=()  dtype=float32  value=0.000362102
+  bert.encoder.layers.0.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.0.attention.v.weight.scale  shape=()  dtype=float32  value=0.000412
+  bert.encoder.layers.0.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.0004804
+  bert.encoder.layers.0.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000343295
+  bert.encoder.layers.1.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.1.attention.out.weight.scale  shape=()  dtype=float32  value=0.000362849
+  bert.encoder.layers.1.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283224
+  bert.encoder.layers.1.attention.v.weight.scale  shape=()  dtype=float32  value=0.00037367
+  bert.encoder.layers.1.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000455522
+  bert.encoder.layers.1.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000306985
+    bert.encoder.layers.2.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.2.attention.out.weight.scale  shape=()  dtype=float32  value=0.000362069
+  bert.encoder.layers.2.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.2.attention.v.weight.scale  shape=()  dtype=float32  value=0.00037105
+  bert.encoder.layers.2.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000442101
+  bert.encoder.layers.2.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000297653
+  bert.encoder.layers.3.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.3.attention.out.weight.scale  shape=()  dtype=float32  value=0.000368612
+  bert.encoder.layers.3.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.3.attention.v.weight.scale  shape=()  dtype=float32  value=0.000361728
+  bert.encoder.layers.3.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000505642
+  bert.encoder.layers.3.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000296319
+  bert.encoder.layers.4.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.4.attention.out.weight.scale  shape=()  dtype=float32  value=0.000361594
+  bert.encoder.layers.4.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.4.attention.v.weight.scale  shape=()  dtype=float32  value=0.000370101
+  bert.encoder.layers.4.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000478118
+  bert.encoder.layers.4.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000300287
+  bert.encoder.layers.5.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.5.attention.out.weight.scale  shape=()  dtype=float32  value=0.000351412
+  bert.encoder.layers.5.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.5.attention.v.weight.scale  shape=()  dtype=float32  value=0.000359199
+  bert.encoder.layers.5.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.00041925
+  bert.encoder.layers.5.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000276697
+  bert.encoder.layers.6.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.6.attention.out.weight.scale  shape=()  dtype=float32  value=0.000365106
+  bert.encoder.layers.6.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.6.attention.v.weight.scale  shape=()  dtype=float32  value=0.000352766
+  bert.encoder.layers.6.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000425254
+  bert.encoder.layers.6.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000280381
+  bert.encoder.layers.7.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.7.attention.out.weight.scale  shape=()  dtype=float32  value=0.000349961
+  bert.encoder.layers.7.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.7.attention.v.weight.scale  shape=()  dtype=float32  value=0.000347707
+  bert.encoder.layers.7.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000426678
+  bert.encoder.layers.7.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.00026905
+  bert.encoder.layers.8.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283225
+  bert.encoder.layers.8.attention.out.weight.scale  shape=()  dtype=float32  value=0.000345132
+  bert.encoder.layers.8.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.8.attention.v.weight.scale  shape=()  dtype=float32  value=0.00034353
+  bert.encoder.layers.8.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000412197
+  bert.encoder.layers.8.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000247196
+  bert.encoder.layers.9.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.9.attention.out.weight.scale  shape=()  dtype=float32  value=0.000358315
+  bert.encoder.layers.9.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.9.attention.v.weight.scale  shape=()  dtype=float32  value=0.000365769
+  bert.encoder.layers.9.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000400689
+  bert.encoder.layers.9.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000240947
+  bert.encoder.layers.10.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.10.attention.out.weight.scale  shape=()  dtype=float32  value=0.00033823
+  bert.encoder.layers.10.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.10.attention.v.weight.scale  shape=()  dtype=float32  value=0.00034858
+  bert.encoder.layers.10.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.0004142
+  bert.encoder.layers.10.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000265127
+  bert.encoder.layers.11.attention.k.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.11.attention.out.weight.scale  shape=()  dtype=float32  value=0.000354385
+  bert.encoder.layers.11.attention.q.weight.scale  shape=()  dtype=float32  value=0.000283226
+  bert.encoder.layers.11.attention.v.weight.scale  shape=()  dtype=float32  value=0.000359637
+  bert.encoder.layers.11.ffn.dense_1.weight.scale  shape=()  dtype=float32  value=0.000401208
+  bert.encoder.layers.11.ffn.dense_2.weight.scale  shape=()  dtype=float32  value=0.000250119
 
-✓ Saved quantized weights to /kaggle/working/weights_with_scales.npz
-✓ Saved scale metadata to /kaggle/working/weights_with_scales_scale_metadata.json
+  bert.pooler.weight.scale  shape=()  dtype=float32  value=0.000332272
+  classifier.weight.scale  shape=()  dtype=float32  value=0.00027924
 
-======================================================================
-GELU INPUT RANGE ANALYSIS
-======================================================================
+  INPUT SCALES (77)
+  bert.embeddings.position_embeddings.weight.input_scale  shape=()  dtype=float32  value=1
+  bert.embeddings.token_type_embeddings.weight.input_scale  shape=()  dtype=float32  value=1
+  bert.embeddings.word_embeddings.weight.input_scale  shape=()  dtype=float32  value=1
+  bert.encoder.layers.0.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0350309
+  bert.encoder.layers.0.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.00688182
+  bert.encoder.layers.0.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0350309
+  bert.encoder.layers.0.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0350309
+  bert.encoder.layers.0.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0327429
+  bert.encoder.layers.0.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0169765
+  bert.encoder.layers.1.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0356816
+  bert.encoder.layers.1.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.00601351
+  bert.encoder.layers.1.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0356816
+  bert.encoder.layers.1.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0356816
+  bert.encoder.layers.1.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.032943
+  bert.encoder.layers.1.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0181056
+  bert.encoder.layers.2.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0357626
+  bert.encoder.layers.2.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.00709546
+  bert.encoder.layers.2.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0357626
+  bert.encoder.layers.2.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0357626
+  bert.encoder.layers.2.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0346987
+  bert.encoder.layers.2.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0186981
+  bert.encoder.layers.3.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.038362
+  bert.encoder.layers.3.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.00883437
+  bert.encoder.layers.3.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.038362
+  bert.encoder.layers.3.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.038362
+  bert.encoder.layers.3.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0357868
+  bert.encoder.layers.3.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0347037
+  bert.encoder.layers.4.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0384599
+  bert.encoder.layers.4.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.00962202
+  bert.encoder.layers.4.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0384599
+  bert.encoder.layers.4.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0384599
+  bert.encoder.layers.4.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0362547
+  bert.encoder.layers.4.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0404883
+  bert.encoder.layers.5.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.038161
+  bert.encoder.layers.5.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.0125841
+  bert.encoder.layers.5.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.038161
+  bert.encoder.layers.5.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.038161
+  bert.encoder.layers.5.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0359516
+  bert.encoder.layers.5.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0459768
+  bert.encoder.layers.6.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0383592
+  bert.encoder.layers.6.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.0105249
+  bert.encoder.layers.6.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0383592
+  bert.encoder.layers.6.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0383592
+  bert.encoder.layers.6.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0369277
+  bert.encoder.layers.6.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0507041
+  bert.encoder.layers.7.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0390388
+  bert.encoder.layers.7.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.0119511
+  bert.encoder.layers.7.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0390388
+  bert.encoder.layers.7.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0390388
+  bert.encoder.layers.7.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0363744
+  bert.encoder.layers.7.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0470392
+  bert.encoder.layers.8.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0392569
+  bert.encoder.layers.8.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.0121412
+  bert.encoder.layers.8.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0392569
+  bert.encoder.layers.8.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0392569
+  bert.encoder.layers.8.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0375942
+  bert.encoder.layers.8.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0434206
+  bert.encoder.layers.9.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0404852
+  bert.encoder.layers.9.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.0119377
+  bert.encoder.layers.9.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0404852
+  bert.encoder.layers.9.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0404852
+  bert.encoder.layers.9.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0405755
+  bert.encoder.layers.9.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0459878
+  bert.encoder.layers.10.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0415177
+  bert.encoder.layers.10.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.013194
+  bert.encoder.layers.10.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0415177
+  bert.encoder.layers.10.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0415177
+  bert.encoder.layers.10.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.040053
+  bert.encoder.layers.10.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.036517
+  bert.encoder.layers.11.attention.k.weight.input_scale  shape=()  dtype=float32  value=0.0420883
+  bert.encoder.layers.11.attention.out.weight.input_scale  shape=()  dtype=float32  value=0.0148346
+  bert.encoder.layers.11.attention.q.weight.input_scale  shape=()  dtype=float32  value=0.0420883
+  bert.encoder.layers.11.attention.v.weight.input_scale  shape=()  dtype=float32  value=0.0420883
+  bert.encoder.layers.11.ffn.dense_1.weight.input_scale  shape=()  dtype=float32  value=0.0371409
+  bert.encoder.layers.11.ffn.dense_2.weight.input_scale  shape=()  dtype=float32  value=0.0261392
+  bert.pooler.weight.input_scale  shape=()  dtype=float32  value=1
+  classifier.weight.input_scale  shape=()  dtype=float32  value=0.0078513
 
-MEASURED RANGES FROM 1980 BATCHES:
-  Overall range:        [-6.4586, 5.6423]
-  Typical range (90%):  [-5.9796, 5.0549]
-  Median range:         [-4.8317, 4.0117]
-  Mean of values:       0.4484
-  Typical std dev:      0.6604
-
-======================================================================
-EXTRACTION SUMMARY
-======================================================================
-Total size: 104.76 MB
-Layers with measured input scales: 77
-INT32 biases: 74
-======================================================================
+  BIAS SCALES (74)
+  bert.encoder.layers.0.attention.k.bias.scale  shape=()  dtype=float32  value=9.92165e-06
+  bert.encoder.layers.0.attention.out.bias.scale  shape=()  dtype=float32  value=2.49192e-06
+  bert.encoder.layers.0.attention.q.bias.scale  shape=()  dtype=float32  value=9.92165e-06
+  bert.encoder.layers.0.attention.v.bias.scale  shape=()  dtype=float32  value=1.44327e-05
+  bert.encoder.layers.0.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.57297e-05
+  bert.encoder.layers.0.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=5.82796e-06
+  bert.encoder.layers.1.attention.k.bias.scale  shape=()  dtype=float32  value=1.01059e-05
+  bert.encoder.layers.1.attention.out.bias.scale  shape=()  dtype=float32  value=2.182e-06
+  bert.encoder.layers.1.attention.q.bias.scale  shape=()  dtype=float32  value=1.01059e-05
+  bert.encoder.layers.1.attention.v.bias.scale  shape=()  dtype=float32  value=1.33331e-05
+  bert.encoder.layers.1.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.50063e-05
+  bert.encoder.layers.1.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=5.55813e-06
+  bert.encoder.layers.2.attention.k.bias.scale  shape=()  dtype=float32  value=1.01289e-05
+  bert.encoder.layers.2.attention.out.bias.scale  shape=()  dtype=float32  value=2.56904e-06
+  bert.encoder.layers.2.attention.q.bias.scale  shape=()  dtype=float32  value=1.01289e-05
+  bert.encoder.layers.2.attention.v.bias.scale  shape=()  dtype=float32  value=1.32697e-05
+  bert.encoder.layers.2.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.53403e-05
+  bert.encoder.layers.2.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=5.56556e-06
+  bert.encoder.layers.3.attention.k.bias.scale  shape=()  dtype=float32  value=1.08651e-05
+  bert.encoder.layers.3.attention.out.bias.scale  shape=()  dtype=float32  value=3.25646e-06
+  bert.encoder.layers.3.attention.q.bias.scale  shape=()  dtype=float32  value=1.08651e-05
+  bert.encoder.layers.3.attention.v.bias.scale  shape=()  dtype=float32  value=1.38766e-05
+  bert.encoder.layers.3.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.80953e-05
+  bert.encoder.layers.3.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=1.02834e-05
+  bert.encoder.layers.4.attention.k.bias.scale  shape=()  dtype=float32  value=1.08928e-05
+  bert.encoder.layers.4.attention.out.bias.scale  shape=()  dtype=float32  value=3.47927e-06
+  bert.encoder.layers.4.attention.q.bias.scale  shape=()  dtype=float32  value=1.08928e-05
+  bert.encoder.layers.4.attention.v.bias.scale  shape=()  dtype=float32  value=1.4234e-05
+  bert.encoder.layers.4.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.7334e-05
+  bert.encoder.layers.4.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=1.21581e-05
+  bert.encoder.layers.5.attention.k.bias.scale  shape=()  dtype=float32  value=1.08082e-05
+  bert.encoder.layers.5.attention.out.bias.scale  shape=()  dtype=float32  value=4.4222e-06
+  bert.encoder.layers.5.attention.q.bias.scale  shape=()  dtype=float32  value=1.08082e-05
+  bert.encoder.layers.5.attention.v.bias.scale  shape=()  dtype=float32  value=1.37074e-05
+  bert.encoder.layers.5.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.50727e-05
+  bert.encoder.layers.5.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=1.27216e-05
+  bert.encoder.layers.6.attention.k.bias.scale  shape=()  dtype=float32  value=1.08643e-05
+  bert.encoder.layers.6.attention.out.bias.scale  shape=()  dtype=float32  value=3.84271e-06
+  bert.encoder.layers.6.attention.q.bias.scale  shape=()  dtype=float32  value=1.08643e-05
+  bert.encoder.layers.6.attention.v.bias.scale  shape=()  dtype=float32  value=1.35318e-05
+  bert.encoder.layers.6.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.57037e-05
+  bert.encoder.layers.6.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=1.42165e-05
+  bert.encoder.layers.7.attention.k.bias.scale  shape=()  dtype=float32  value=1.10568e-05
+  bert.encoder.layers.7.attention.out.bias.scale  shape=()  dtype=float32  value=4.18241e-06
+  bert.encoder.layers.7.attention.q.bias.scale  shape=()  dtype=float32  value=1.10568e-05
+  bert.encoder.layers.7.attention.v.bias.scale  shape=()  dtype=float32  value=1.35741e-05
+  bert.encoder.layers.7.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.55202e-05
+  bert.encoder.layers.7.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=1.26559e-05
+  bert.encoder.layers.8.attention.k.bias.scale  shape=()  dtype=float32  value=1.11185e-05
+  bert.encoder.layers.8.attention.out.bias.scale  shape=()  dtype=float32  value=4.19032e-06
+  bert.encoder.layers.8.attention.q.bias.scale  shape=()  dtype=float32  value=1.11186e-05
+  bert.encoder.layers.8.attention.v.bias.scale  shape=()  dtype=float32  value=1.34859e-05
+  bert.encoder.layers.8.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.54962e-05
+  bert.encoder.layers.8.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=1.07334e-05
+  bert.encoder.layers.9.attention.k.bias.scale  shape=()  dtype=float32  value=1.14665e-05
+  bert.encoder.layers.9.attention.out.bias.scale  shape=()  dtype=float32  value=4.27746e-06
+  bert.encoder.layers.9.attention.q.bias.scale  shape=()  dtype=float32  value=1.14665e-05
+  bert.encoder.layers.9.attention.v.bias.scale  shape=()  dtype=float32  value=1.48082e-05
+  bert.encoder.layers.9.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.62581e-05
+  bert.encoder.layers.9.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=1.10806e-05
+  bert.encoder.layers.10.attention.k.bias.scale  shape=()  dtype=float32  value=1.17589e-05
+  bert.encoder.layers.10.attention.out.bias.scale  shape=()  dtype=float32  value=4.4626e-06
+  bert.encoder.layers.10.attention.q.bias.scale  shape=()  dtype=float32  value=1.17589e-05
+  bert.encoder.layers.10.attention.v.bias.scale  shape=()  dtype=float32  value=1.44722e-05
+  bert.encoder.layers.10.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.65899e-05
+  bert.encoder.layers.10.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=9.68162e-06
+  bert.encoder.layers.11.attention.k.bias.scale  shape=()  dtype=float32  value=1.19205e-05
+  bert.encoder.layers.11.attention.out.bias.scale  shape=()  dtype=float32  value=5.25715e-06
+  bert.encoder.layers.11.attention.q.bias.scale  shape=()  dtype=float32  value=1.19205e-05
+  bert.encoder.layers.11.attention.v.bias.scale  shape=()  dtype=float32  value=1.51365e-05
+  bert.encoder.layers.11.ffn.dense_1.bias.scale  shape=()  dtype=float32  value=1.49012e-05
+  bert.encoder.layers.11.ffn.dense_2.bias.scale  shape=()  dtype=float32  value=6.5379e-06
+  bert.pooler.bias.scale  shape=()  dtype=float32  value=0.000332272
+  classifier.bias.scale  shape=()  dtype=float32  value=2.1924e-06
