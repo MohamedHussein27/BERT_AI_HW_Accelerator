@@ -24,7 +24,7 @@ module quantize #(
     // --------------------------------------------------------
     // Stage 1: Multiplication
     // --------------------------------------------------------
-    assign mul_wire = data_in * $signed({1'b0, scale_M});
+    assign mul_wire = data_in * $signed({1'b0, scale_M}); // make full use of scale_M bits while keeping it always positive
 
     always_ff @(posedge clk or negedge rst_n) begin : multiplication_block
         if (!rst_n) begin
