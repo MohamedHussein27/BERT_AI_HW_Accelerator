@@ -9,12 +9,16 @@ module quantize #(
     input  logic                                 valid_in,
     input  logic signed [DATAWIDTH_in-1:0]       data_in,
     input  logic        [M_width-1:0]            scale_M,
-    input  logic        [S_width-1:0]            scale_S,
+    input  logic signed [S_width-1:0]            scale_S,
 
     output logic signed [DATAWIDTH_out-1:0]      data_out,
     output logic                                 valid_out
 );
     localparam MUL_WIDTH = M_width + DATAWIDTH_in;
+    
+    // Calculate max and min values for clamping at compile-time
+    localparam signed [DATAWIDTH_out-1:0] MAX_VAL = (2**(DATAWIDTH_out-1)) - 1;
+    localparam signed [DATAWIDTH_out-1:0] MIN_VAL = -(2**(DATAWIDTH_out-1));
         
     // wires and regs
     logic signed [MUL_WIDTH-1:0] mul_wire;
@@ -24,7 +28,7 @@ module quantize #(
     // --------------------------------------------------------
     // Stage 1: Multiplication
     // --------------------------------------------------------
-    assign mul_wire = data_in * $signed({1'b0, scale_M}); // make full use of scale_M bits while keeping it always positive
+    assign mul_wire = data_in * $signed({1'b0, scale_M}); 
 
     always_ff @(posedge clk or negedge rst_n) begin : multiplication_block
         if (!rst_n) begin
@@ -44,17 +48,16 @@ module quantize #(
     logic signed [MUL_WIDTH-1:0]     shifted_wire;
     logic signed [DATAWIDTH_out-1:0] clamp_wire;
 
-    // Added MUL_WIDTH casting to prevent overflow, and >>> for arithmetic shift
     assign shifted_wire = (mul_reg + (MUL_WIDTH'(1) << (30 + scale_S))) >>> (31 + scale_S);
 
-    // Replaced nested ternaries with a clean always_comb block
+    // Using the pre-calculated limits makes this block incredibly clean
     always_comb begin : clamp_block
-        if (shifted_wire >= 127) begin
-            clamp_wire = 8'sd127;           // Saturate at max INT8
-        end else if (shifted_wire <= -128) begin
-            clamp_wire = -8'sd128;          // Saturate at min INT8
+        if (shifted_wire >= MAX_VAL) begin
+            clamp_wire = MAX_VAL;           
+        end else if (shifted_wire <= MIN_VAL) begin
+            clamp_wire = MIN_VAL;          
         end else begin
-            clamp_wire = shifted_wire[DATAWIDTH_out-1:0]; // Pass through if in range
+            clamp_wire = shifted_wire[DATAWIDTH_out-1:0]; 
         end
     end
 
