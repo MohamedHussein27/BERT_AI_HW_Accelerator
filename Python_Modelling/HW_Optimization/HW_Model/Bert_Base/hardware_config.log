@@ -1,0 +1,158 @@
+=== ACCELERATOR QUANTIZATION PIPELINE M0/S CONFIG ===
+
+--------------------- LAYER 0 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1972133394   | S: 11
+[ATTEN-Quantize (32->8)]     M0: 1104008503   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1958868565   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 2051840830   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1417471555   | S: 5
+[.VGeMM Quant (32->8)]       M0: 2130779236   | S: 8
+[Wo Quantize (32->8)]        M0: 1614228903   | S: 10
+[Add&Norm Quant (?->8)]      M0: 1845025262   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1449841874   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1556097776   | S: 10
+[FFN2 Quant (32->8)]         M0: 1763007950   | S: 11
+
+--------------------- LAYER 1 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1081081080   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1108794819   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1393456876   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 1963391527   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1193079389   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1571021856   | S: 7
+[Wo Quantize (32->8)]        M0: 1656627290   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1783102513   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1500191834   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1533405172   | S: 10
+[FFN2 Quant (32->8)]         M0: 1860967253   | S: 11
+
+--------------------- LAYER 2 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1138621866   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1093909335   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1221084528   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 1967157660   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1243924371   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1759490783   | S: 8
+[Wo Quantize (32->8)]        M0: 1298907977   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1753598033   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1525432187   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1467772199   | S: 10
+[FFN2 Quant (32->8)]         M0: 1658178314   | S: 11
+
+--------------------- LAYER 3 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1089659065   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1119828917   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1218363151   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 2109976621   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1302981916   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1696809140   | S: 8
+[Wo Quantize (32->8)]        M0: 1640903450   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1672594262   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1599308896   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1537999004   | S: 10
+[FFN2 Quant (32->8)]         M0: 1162848325   | S: 11
+
+--------------------- LAYER 4 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1135749098   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1114481011   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1351187335   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 1098649998   | S: -13
+[Softmax Quant (Q1.15->8)]   M0: 1390594902   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1512890788   | S: 8
+[Wo Quantize (32->8)]        M0: 1679396499   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1643657618   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1627465355   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1517408184   | S: 10
+[FFN2 Quant (32->8)]         M0: 1325926245   | S: 11
+
+--------------------- LAYER 5 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1248588427   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1272097990   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1479218190   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 2031116760   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1436132024   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1459120748   | S: 8
+[Wo Quantize (32->8)]        M0: 1875472705   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1548415368   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1727569319   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1477838087   | S: 10
+[FFN2 Quant (32->8)]         M0: 1447181179   | S: 11
+
+--------------------- LAYER 6 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1214810854   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1272449740   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1471063231   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 2046075739   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1384857480   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1570281119   | S: 8
+[Wo Quantize (32->8)]        M0: 1754558567   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1484694599   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1801713891   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1418623495   | S: 10
+[FFN2 Quant (32->8)]         M0: 1098297178   | S: 11
+
+--------------------- LAYER 7 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1296299044   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1291165488   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1447246344   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 1943915767   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1464815885   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1395894581   | S: 8
+[Wo Quantize (32->8)]        M0: 2084748259   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1515197706   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1765443425   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1483742322   | S: 10
+[FFN2 Quant (32->8)]         M0: 1242701252   | S: 11
+
+--------------------- LAYER 8 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1376712388   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1352191951   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1588220302   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 1944943637   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1310416147   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1415542743   | S: 8
+[Wo Quantize (32->8)]        M0: 2055817848   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1481095769   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1806092411   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1522039072   | S: 10
+[FFN2 Quant (32->8)]         M0: 1240877525   | S: 11
+
+--------------------- LAYER 9 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1328041062   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1313099036   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1518650030   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 1917921658   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1506278218   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1463116553   | S: 8
+[Wo Quantize (32->8)]        M0: 1577039736   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1481596062   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1805482544   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1511626363   | S: 10
+[FFN2 Quant (32->8)]         M0: 1087376496   | S: 11
+
+--------------------- LAYER 10 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1342858781   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1296595168   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1461924128   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 1966700741   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1529508551   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1347887107   | S: 8
+[Wo Quantize (32->8)]        M0: 2106201677   | S: 11
+[Add&Norm Quant (?->8)]      M0: 1514610199   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1766125111   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1567838832   | S: 10
+[FFN2 Quant (32->8)]         M0: 1968255041   | S: 12
+
+--------------------- LAYER 11 ---------------------
+[ATTEN-Quantize (32->8)]     M0: 1421861524   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1430590577   | S: 10
+[ATTEN-Quantize (32->8)]     M0: 1359846296   | S: 10
+[QKt Dequantize (32->Q5.26)] M0: 1832810226   | S: -12
+[Softmax Quant (Q1.15->8)]   M0: 1510971945   | S: 5
+[.VGeMM Quant (32->8)]       M0: 1432523331   | S: 8
+[Wo Quantize (32->8)]        M0: 1155174891   | S: 10
+[Add&Norm Quant (?->8)]      M0: 1395082723   | S: 21
+[FFN1 Dequant (32->Q10.22)]  M0: 1917446029   | S: -6
+[GELU Quant (Q48.16->8)]     M0: 1514380517   | S: 10
+[FFN2 Quant (32->8)]         M0: 1753913888   | S: 12
+
