@@ -1,68 +1,62 @@
 `timescale 1ns / 1ps
 
-module tb_quantize();
+module tb_layer0_quantization();
 
     // -----------------------------------------
-    // Parameters
+    // Global Parameters
     // -----------------------------------------
-    localparam DATAWIDTH_in = 32;
-    localparam M_width      = 32; // Python M0 is up to 32 bits!
-    localparam S_width      = 8;
+    localparam M_WIDTH = 32;
+    localparam S_WIDTH = 8;
+
+    logic clk;
+    logic rst_n;
 
     // -----------------------------------------
-    // Shared Stimulus Signals
+    // DUT 1: Standard 32->8 Quantizer
     // -----------------------------------------
-    logic                                 clk;
-    logic                                 rst_n;
-    logic                                 valid_in;
-    logic signed [DATAWIDTH_in-1:0]       data_in;
-    logic        [M_width-1:0]            scale_M;
-    logic signed [S_width-1:0]            scale_S; // Signed to allow negative shifts!
+    logic valid_in_int8, valid_out_int8;
+    logic signed [31:0] data_in_int8;
+    logic [M_WIDTH-1:0] scale_m_int8;
+    logic signed [S_WIDTH-1:0] scale_s_int8;
+    logic signed [7:0] data_out_int8;
 
-    // Outputs for INT8 DUT
-    logic signed [7:0]                    data_out_int8;
-    logic                                 valid_out_int8;
-
-    // Outputs for Q5.26 (INT32) DUT
-    logic signed [31:0]                   data_out_q5_26;
-    logic                                 valid_out_q5_26;
-
-    // -----------------------------------------
-    // DUT 1: Standard INT8 Quantizer
-    // -----------------------------------------
     quantize #(
-        .DATAWIDTH_in(DATAWIDTH_in),
-        .DATAWIDTH_out(8),             // 8-bit output
-        .M_width(M_width),
-        .S_width(S_width)
+        .DATAWIDTH_in(32), .DATAWIDTH_out(8), .M_width(M_WIDTH), .S_width(S_WIDTH)
     ) dut_int8 (
-        .clk(clk),
-        .rst_n(rst_n),
-        .valid_in(valid_in),
-        .data_in(data_in),
-        .scale_M(scale_M),
-        .scale_S(scale_S),
-        .data_out(data_out_int8),
-        .valid_out(valid_out_int8)
+        .clk(clk), .rst_n(rst_n), .valid_in(valid_in_int8), .data_in(data_in_int8),
+        .scale_M(scale_m_int8), .scale_S(scale_s_int8), .data_out(data_out_int8), .valid_out(valid_out_int8)
     );
 
     // -----------------------------------------
-    // DUT 2: Q5.26 (32-bit) Quantizer
+    // DUT 2: 32->32 Dequantizer (Q5.26 / Q10.22)
     // -----------------------------------------
+    logic valid_in_q32, valid_out_q32;
+    logic signed [31:0] data_in_q32;
+    logic [M_WIDTH-1:0] scale_m_q32;
+    logic signed [S_WIDTH-1:0] scale_s_q32;
+    logic signed [31:0] data_out_q32;
+
     quantize #(
-        .DATAWIDTH_in(DATAWIDTH_in),
-        .DATAWIDTH_out(32),            // 32-bit output!
-        .M_width(M_width),
-        .S_width(S_width)
-    ) dut_q5_26 (
-        .clk(clk),
-        .rst_n(rst_n),
-        .valid_in(valid_in),
-        .data_in(data_in),
-        .scale_M(scale_M),
-        .scale_S(scale_S),
-        .data_out(data_out_q5_26),
-        .valid_out(valid_out_q5_26)
+        .DATAWIDTH_in(32), .DATAWIDTH_out(32), .M_width(M_WIDTH), .S_width(S_WIDTH)
+    ) dut_q32 (
+        .clk(clk), .rst_n(rst_n), .valid_in(valid_in_q32), .data_in(data_in_q32),
+        .scale_M(scale_m_q32), .scale_S(scale_s_q32), .data_out(data_out_q32), .valid_out(valid_out_q32)
+    );
+
+    // -----------------------------------------
+    // DUT 3: 64->8 Quantizer (GELU Q48.16)
+    // -----------------------------------------
+    logic valid_in_gelu, valid_out_gelu;
+    logic signed [63:0] data_in_gelu;
+    logic [M_WIDTH-1:0] scale_m_gelu;
+    logic signed [S_WIDTH-1:0] scale_s_gelu;
+    logic signed [7:0] data_out_gelu;
+
+    quantize #(
+        .DATAWIDTH_in(64), .DATAWIDTH_out(8), .M_width(M_WIDTH), .S_width(S_WIDTH)
+    ) dut_gelu (
+        .clk(clk), .rst_n(rst_n), .valid_in(valid_in_gelu), .data_in(data_in_gelu),
+        .scale_M(scale_m_gelu), .scale_S(scale_s_gelu), .data_out(data_out_gelu), .valid_out(valid_out_gelu)
     );
 
     // -----------------------------------------
@@ -74,87 +68,76 @@ module tb_quantize();
     end
 
     // -----------------------------------------
-    // Main Test Sequence
+    // Tasks to drive stimulus to specific DUTs
     // -----------------------------------------
-    initial begin
-        rst_n    = 0;
-        valid_in = 0;
-        data_in  = 0;
-        scale_M  = 0;
-        scale_S  = 0;
-
-        #20 rst_n = 1;
-        $display("\n================ STARTING QUANTIZATION TESTS ================");
-
-        // TC1: Normal INT8 scale down. 
-        // M0 = 1073741824 is exactly 0.5 in fixed point (2^30 / 2^31)
-        // 100 * 0.5 = 50. 
+    task run_int8(input string name, input logic signed [31:0] din, input logic [31:0] m0, input logic signed [7:0] s);
         @(negedge clk);
-        apply_stimulus("TC1 - Normal Scale Down", 100, 1073741824, 0);
-
-        // TC2: INT8 Clamping. 
-        // 500 * 0.5 = 250. This exceeds 127, so INT8 should clamp, Q32 should pass.
+        valid_in_int8 <= 1'b1; data_in_int8 <= din; scale_m_int8 <= m0; scale_s_int8 <= s;
         @(negedge clk);
-        apply_stimulus("TC2 - INT8 Positive Clamp", 500, 1073741824, 0);
-
-        // TC3: Normal Q5.26 Conversion (Negative Shift)
-        // S = -15. Division becomes (31 - 15) = 16.
-        // 1,000 * 1,073,741,824 = 1,073,741,824,000. 
-        // 1,073,741,824,000 >> 16 = 16,384,000. 
-        @(negedge clk);
-        apply_stimulus("TC3 - Q5.26 Standard Conversion", 1000, 1073741824, -15);
-
-        // TC4: Q5.26 Clamping (32-bit Overflow Prevention)
-        // Data = 500,000. Same M and S as TC3.
-        // Math yields 8,192,000,000. This exceeds 32-bit max (2,147,483,647).
-        @(negedge clk);
-        apply_stimulus("TC4 - Q5.26 32-bit Positive Clamp", 500000, 1073741824, -15);
-
-        // TC5: Negative Value processing
-        // -150 * 0.5 = -75.
-        @(negedge clk);
-        apply_stimulus("TC5 - Normal Negative Processing", -150, 1073741824, 0);
-
-        // TC4.5: Q5.26 Normal Scale Up (NO CLAMPING)
-        // Data = 5,000. M0 = 1073741824 (0.5). S = -15.
-        // Math: Data * 0.5 * 2^15 = 5000 * 0.5 * 32768 = 81,920,000.
-        // 81,920,000 is well below the 32-bit max of 2,147,483,647.
-        @(negedge clk);
-        apply_stimulus("TC4.5 - Q5.26 Normal Scale Up (No Clamp)", 5000, 1073741824, -15);
-
-        #40;
-        $display("================ TESTS COMPLETED ================\n");
-        $finish;
-    end
-
-
-    // -----------------------------------------
-    // Task: Apply Stimulus
-    // -----------------------------------------
-    task apply_stimulus(
-        input string test_name,
-        input logic signed [DATAWIDTH_in-1:0] in_val,
-        input logic        [M_width-1:0]      m_val,
-        input logic signed [S_width-1:0]      s_val
-    );
-        begin
-            
-            valid_in <= 1'b1;
-            data_in  <= in_val;
-            scale_M  <= m_val;
-            scale_S  <= s_val;
-            
-            @(posedge clk);
-            valid_in <= 1'b0; 
-
-            // Wait for pipeline to finish (valid_out high)
-            @(posedge valid_out_int8);
-            $display("------------------------------------------------------------");
-            $display("TEST CASE: %s", test_name);
-            $display("Inputs -> Data: %0d | M0: %0d | S: %0d", in_val, m_val, s_val);
-            $display("Output (INT8)   : %0d", data_out_int8);
-            $display("Output (Q5.26)  : %0d", data_out_q5_26);
-        end
+        valid_in_int8 <= 1'b0;
+        @(posedge valid_out_int8);
+        $display("[%-25s] IN: %10d | M0: %10d | S: %3d | OUT (8-bit): %4d", name, din, m0, s, data_out_int8);
     endtask
 
+    task run_q32(input string name, input logic signed [31:0] din, input logic [31:0] m0, input logic signed [7:0] s);
+        @(negedge clk);
+        valid_in_q32 <= 1'b1; data_in_q32 <= din; scale_m_q32 <= m0; scale_s_q32 <= s;
+        @(negedge clk);
+        valid_in_q32 <= 1'b0;
+        @(posedge valid_out_q32);
+        $display("[%-25s] IN: %10d | M0: %10d | S: %3d | OUT (32-bit): %10d", name, din, m0, s, data_out_q32);
+    endtask
+
+    task run_gelu(input string name, input logic signed [63:0] din, input logic [31:0] m0, input logic signed [7:0] s);
+        @(negedge clk);
+        valid_in_gelu <= 1'b1; data_in_gelu <= din; scale_m_gelu <= m0; scale_s_gelu <= s;
+        @(negedge clk);
+        valid_in_gelu <= 1'b0;
+        @(posedge valid_out_gelu);
+        $display("[%-25s] IN: %10d | M0: %10d | S: %3d | OUT (8-bit): %4d", name, din, m0, s, data_out_gelu);
+    endtask
+
+    // -----------------------------------------
+    // Main Sequence: LAYER 0 PIPELINE
+    // -----------------------------------------
+    initial begin
+        // Init
+        rst_n = 0;
+        valid_in_int8 = 0; valid_in_q32 = 0; valid_in_gelu = 0;
+        #20 rst_n = 1; #10;
+
+        $display("\n================ LAYER 0 QUANTIZATION DATAPATH VERIFICATION ================\n");
+
+        // 1. QKV Projections (Assuming raw accumulator value of ~150,000)
+        run_int8("ATTEN-Q Quant (32->8)", 150000, 1972133394, 11);
+        run_int8("ATTEN-K Quant (32->8)", 150000, 1104008503, 10);
+        run_int8("ATTEN-V Quant (32->8)", 150000, 1958868565, 10);
+
+        // 2. QKt to Softmax (Scaling an attention score of 2,500 up into Q5.26)
+        run_q32("QKt Dequant (32->Q5.26)", 2500, 2051840830, -12);
+
+        // 3. Softmax Output (Inputting 16384, which is 0.5 in Q1.15 format)
+        run_int8("Softmax Quant (Q1.15->8)", 16384, 1417471555, 5);
+
+        // 4. Context (.VGeMM) and Output (Wo)
+        run_int8(".VGeMM Quant (32->8)", 85000, 2130779236, 8);
+        run_int8("Wo Quantize (32->8)", 120000, 1614228903, 10);
+
+        // 5. Add & Norm (Assuming the Q-format was resolved, passing a simulated normalized value)
+        run_int8("Add&Norm Quant (?->8)", 500000, 1845025262, 21);
+
+        // 6. FFN1 to GELU (Scaling an FFN MAC of 8,500 into Q10.22)
+        run_q32("FFN1 Dequant (32->Q10.22)", 8500, 1449841874, -6);
+
+        // 7. GELU Output to FFN2 
+        // Inputting 327680 into the 64-bit DUT, which is exactly 5.0 in Q48.16 format (5 * 2^16)
+        run_gelu("GELU Quant (Q48.16->8)", 64'd327680, 1556097776, 10);
+
+        // 8. FFN2 Final Output
+        run_int8("FFN2 Quant (32->8)", 95000, 1763007950, 11);
+
+        #50;
+        $display("\n================ DATAPATH VERIFICATION COMPLETE ================\n");
+        $finish;
+    end
 endmodule
