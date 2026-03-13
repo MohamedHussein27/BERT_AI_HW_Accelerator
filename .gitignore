@@ -1,6 +1,7 @@
 
 # gitignore for quantization module questa files
 RTL/Quantization/work/
+RTL/Quantization/Quantization_ROM_Test
 RTL/Quantization/quantization_module.mpf
 RTL/Quantization/vsim.wlf
 RTL/Quantization/quantization_module.cr.mti
