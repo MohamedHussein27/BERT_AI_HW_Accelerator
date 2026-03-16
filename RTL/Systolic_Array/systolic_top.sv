@@ -10,8 +10,7 @@ module systolic_top #(
     parameter N_SIZE = 32,
     parameter num_of_raws = 512,
     parameter BUS_WIDTH = 256, // N_SIZE * DATAWIDTH
-    parameter ADDR_WIDTH  = 10,
-    parameter DEPTH = 512
+    parameter ADDR_WIDTH  = 10
 ) (
     input  logic signed [BUS_WIDTH-1:0] in_A,
     input  logic signed [BUS_WIDTH-1:0] weights,
@@ -141,7 +140,7 @@ module systolic_top #(
     systolic_internal_buffer #(
         .DATAWIDTH_output(DATAWIDTH_output),
         .N_SIZE(N_SIZE),
-        .DEPTH(DEPTH + N_SIZE - 1),
+        .DEPTH(num_of_raws + N_SIZE - 1),
         .ADDR_WIDTH(ADDR_WIDTH)
     ) partial_sum_buffer (
         .clk     (clk),
@@ -155,7 +154,7 @@ module systolic_top #(
     systolic_internal_buffer #(
         .DATAWIDTH_output(DATAWIDTH_output),
         .N_SIZE(N_SIZE),
-        .DEPTH(DEPTH),
+        .DEPTH(num_of_raws),
         .ADDR_WIDTH(ADDR_WIDTH)
     ) out_buffer (
         .clk     (clk),
