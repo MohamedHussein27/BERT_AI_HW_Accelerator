@@ -191,7 +191,6 @@ def to_fixed_point(x, bits, frac_bits):
 
 # ==============================================================================
 # PLA SOFTMAX  (piecewise-linear exp approximation)
-# ==============================================================================
 
 class PLASoftmax(nn.Module):
     def __init__(self, num_intervals=12, domain_min=-10.0, domain_max=0.0):
@@ -234,7 +233,7 @@ class PLASoftmax(nn.Module):
         exps          = self.pla_exp(shifted_fx)
         softmax_out   = exps / (exps.sum(dim=-1, keepdim=True) + 1e-9)
         # PDF: "Softmax Quantization Q1.15 to 8 bit"
-        # Snap to Q1.15 grid (hardware softmax output register precision)
+        # Snap to Q1.15 grid
         # before requantizing to INT8.
         softmax_q1_15 = to_fixed_point(softmax_out, 16, 15)   # Q1.15 intermediate
         return Quantize.apply(softmax_q1_15)                   # Q1.15 → INT8
@@ -389,8 +388,6 @@ class BertEmbeddings(nn.Module):
 
 # ==============================================================================
 # MULTI-HEAD SELF-ATTENTION
-# ==============================================================================
-
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, hidden_size=768, num_attention_heads=12,
                  dropout=0.1, layer_id=0):
@@ -893,7 +890,7 @@ def main():
 
     # ── Save weights + scales ─────────────────────────────────────────────────
     print("\nTraining complete. Extracting weights and scales...")
-    output_weights_file = '/kaggle/working/weights_with_scales.npz'   # ← change path
+    output_weights_file = '/kaggle/working/weights_with_scales.npz'  
     extract_and_save_quantized_weights(model, output_weights_file)
 
 
