@@ -31,7 +31,8 @@ module processing_element #(
             local_bias_reg   <= '0;
         end else begin
             if (opcode == OP_LOAD_WGT)  local_weight_reg <= data_in;
-            else if (opcode == OP_LOAD_BIAS) local_bias_reg   <= data_in;
+            if (opcode == OP_LOAD_BIAS) local_bias_reg   <= data_in;
+            if (opcode == OP_LOAD_MEAN) local_mean_reg   <= bcast_data;
         end
     end
 
@@ -42,7 +43,7 @@ module processing_element #(
     
     always_comb begin
         if (opcode == OP_VAR_SQR || opcode == OP_NORMALIZE) begin
-            sub_out = data_in - bcast_data; // (X - mu)
+            sub_out = data_in - local_mean_reg; // (X - mu)
         end else begin
             sub_out = data_in; // Bypass subtractor
         end
