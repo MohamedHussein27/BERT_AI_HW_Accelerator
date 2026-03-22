@@ -5,3 +5,11 @@ RTL/Quantization/Quantization_ROM_Test
 RTL/Quantization/quantization_module.*
 RTL/Quantization/vsim.wlf
 RTL/Quantization/quantization_module.cr.mti
+
+# gitignore for layernorm module questa files
+RTL/LayerNorm/work
+RTL/LayerNorm/vsim.wlf
+RTL/LayerNorm/w*
+RTL/LayerNorm/PE.m*
+RTL/LayerNorm/PE.c*
+
