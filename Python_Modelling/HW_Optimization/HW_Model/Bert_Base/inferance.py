@@ -457,9 +457,376 @@ def estimate_accuracy(npz_path: str, num_samples: int = 872):
 
     acc = correct / total * 100
     print(f"\n\n  Accuracy  : {acc:.2f}%  ({correct}/{total})")
-    print(f"  Expected  : ~80–88%")
-    print("═"*60)
     return acc
+
+if __name__ == "__main__":
+    w = r"/kaggle/input/datasets/khalednabil676/sst-2-weight-file/weights_with_scales.npz"
+    estimate_accuracy(w)
+# ══════════════════════════
+# ACTIVATION RECORDER
+# Records the full activation matrices before and after every block
+
+def record_activations(npz_path: str,
+                       out_npz:   str = "activations.npz",
+                       out_index: str = "activations_index.txt",
+                       n_samples: int = 5):
+    """
+    Runs n_samples through the full 12-layer model and records every
+    activation matrix before and after each PDF block using hardware-accurate
+    integer types. GeMM accumulators are INT8 x INT8 -> INT32 (correct).
+    """
+    try:
+        from transformers import BertTokenizer
+        from datasets import load_dataset
+    except ImportError:
+        print("pip install transformers datasets"); return
+
+    print("\n" + "="*60)
+    print("  ACTIVATION RECORDER  (hardware-accurate dtypes)")
+    print(f"  Samples: {n_samples}  |  Layers: 12  |  INT8/INT32/float32")
+    print("="*60)
+
+    model = HardwareBERT()
+    model.load_weights(npz_path)
+
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    dataset   = load_dataset("glue", "sst2", split="validation")
+
+    store = {}
+    index = {}
+
+    def to_int8_arr(fq_arr, sc):
+        """Recover raw INT8 integers from fake-quant floats."""
+        return np.round(np.array(fq_arr) / float(sc)).clip(-127, 127).astype(np.int8)
+
+    def int8_matmul_i32(a_i8, b_i8):
+        """
+        Hardware-correct INT8 x INT8 -> INT32 matmul.
+        a_i8: (M, K)  b_i8: (N, K)  ->  result: (M, N)  dtype int32
+        Matches hardware MAC accumulator exactly.
+        """
+        return a_i8.astype(np.int32) @ b_i8.T.astype(np.int32)
+
+    def save_i8(key, fq_arr, sc, desc):
+        arr = to_int8_arr(fq_arr, sc)
+        if arr.ndim > 1 and arr.shape[0] == 1:
+            arr = arr.squeeze(0)
+        store[key]            = arr
+        store[key + "_scale"] = np.float32(sc)
+        index[key]            = f"INT8    | {desc}"
+        index[key + "_scale"] = f"float32 | scale for {key}"
+
+    def save_i32(key, acc_i32, desc):
+        arr = np.array(acc_i32).astype(np.int32)
+        if arr.ndim > 1 and arr.shape[0] == 1:
+            arr = arr.squeeze(0)
+        store[key] = arr
+        index[key] = f"INT32   | {desc}"
+
+    def save_f32(key, arr, desc):
+        a = np.array(arr).astype(np.float32)
+        if a.ndim > 1 and a.shape[0] == 1:
+            a = a.squeeze(0)
+        store[key] = a
+        index[key] = f"float32 | {desc}"
+
+    T = 32
+
+    for si in range(n_samples):
+        sample = dataset[si]
+        enc    = tokenizer(sample['sentence'], padding='max_length',
+                           truncation=True, max_length=128, return_tensors='np')
+        input_ids      = enc['input_ids'].astype(np.int64)
+        token_type_ids = enc['token_type_ids'].astype(np.int64)
+        attention_mask = enc['attention_mask'].astype(np.float32)
+
+        print(f"\n  Sample {si}: \"{sample['sentence'][:70]}\"")
+        print(f"  Label  : {sample['label']} ({'pos' if sample['label'] else 'neg'})")
+
+        B, S = input_ids.shape
+        pos  = np.arange(S)[np.newaxis, :]
+        emb  = (model.word_emb[input_ids].astype(np.float64)
+              + model.pos_emb[pos].astype(np.float64)
+              + model.tok_type_emb[token_type_ids].astype(np.float64))
+        x    = approx_layernorm(emb, model.emb_ln_gamma, model.emb_ln_beta, eps=1e-12)
+        mask = (1.0 - attention_mask[:, np.newaxis, np.newaxis, :]) * -10000.0
+
+        for li in range(len(model.layers)):
+            p     = f"s{si}_l{li}"
+            layer = model.layers[li]
+            a     = layer.attn
+            ff    = layer.ffn
+            H, D  = a.heads, a.head_dim
+
+            # ── INPUT QUANTIZE ────────────────────────────────────────────
+            save_f32(f"{p}_input_quant_before", x[0],
+                f"s{si} l{li} | INPUT_QUANT before | LN output entering layer | ({S},{x.shape[-1]})")
+            x_fq, x_sc = fake_quant(x)
+            save_i8(f"{p}_input_quant_after", x_fq, x_sc,
+                f"s{si} l{li} | INPUT_QUANT after  | x_i8 | ({S},{x_fq.shape[-1]})")
+
+            # recover raw INT8 integers for correct GeMM
+            x_i8_raw  = to_int8_arr(x_fq,  x_sc)                  # (B,S,H) int8
+            Wq_i8_raw = to_int8_arr(a.Wq,  fake_quant(a.Wq)[1])   # (H,H)   int8
+            Wk_i8_raw = to_int8_arr(a.Wk,  fake_quant(a.Wk)[1])
+            Wv_i8_raw = to_int8_arr(a.Wv,  fake_quant(a.Wv)[1])
+            Wo_i8_raw = to_int8_arr(a.Wo,  fake_quant(a.Wo)[1])
+
+            # ── Q PROJECTION ──────────────────────────────────────────────
+            # INT8 x INT8 -> INT32  (correct hardware accumulator)
+            q_acc_i32 = int8_matmul_i32(x_i8_raw[0], Wq_i8_raw)   # (S, H) int32
+            save_i32(f"{p}_q_proj_after_gemm", q_acc_i32,
+                f"s{si} l{li} | Q_PROJ after_gemm | INT32 = x_i8 @ Wq.T | ({S},{q_acc_i32.shape[-1]})")
+
+            if a.bq is not None:
+                # bias is INT32 — add directly to INT32 accumulator
+                bq_sc      = float(fake_quant(x_fq)[1]) * float(fake_quant(a.Wq)[1])
+                bq_i32     = np.round(a.bq / bq_sc).clip(-2147483648, 2147483647).astype(np.int32)
+                q_bias_i32 = q_acc_i32 + bq_i32
+                save_i32(f"{p}_q_proj_after_bias", q_bias_i32,
+                    f"s{si} l{li} | Q_PROJ after_bias  | INT32 + bias_i32 | ({S},{q_bias_i32.shape[-1]})")
+            else:
+                q_bias_i32 = q_acc_i32
+
+            # dequant to float for requantize
+            q_sc_combined = float(x_sc) * float(fake_quant(a.Wq)[1])
+            q_dequant     = q_bias_i32.astype(np.float64) * q_sc_combined
+            q_fq, q_sc    = fake_quant(q_dequant[np.newaxis])
+            save_i8(f"{p}_q_proj_after_quant", q_fq, q_sc,
+                f"s{si} l{li} | Q_PROJ after_quant | q_i8 [32int->8] | ({S},{q_fq.shape[-1]})")
+
+            # ── K PROJECTION ──────────────────────────────────────────────
+            k_acc_i32 = int8_matmul_i32(x_i8_raw[0], Wk_i8_raw)
+            save_i32(f"{p}_k_proj_after_gemm", k_acc_i32,
+                f"s{si} l{li} | K_PROJ after_gemm | INT32 = x_i8 @ Wk.T | ({S},{k_acc_i32.shape[-1]})")
+            if a.bk is not None:
+                bk_sc      = float(x_sc) * float(fake_quant(a.Wk)[1])
+                bk_i32     = np.round(a.bk / bk_sc).clip(-2147483648, 2147483647).astype(np.int32)
+                k_bias_i32 = k_acc_i32 + bk_i32
+                save_i32(f"{p}_k_proj_after_bias", k_bias_i32,
+                    f"s{si} l{li} | K_PROJ after_bias  | INT32 + bias_i32 | ({S},{k_bias_i32.shape[-1]})")
+            else:
+                k_bias_i32 = k_acc_i32
+            k_sc_combined = float(x_sc) * float(fake_quant(a.Wk)[1])
+            k_dequant     = k_bias_i32.astype(np.float64) * k_sc_combined
+            k_fq, k_sc    = fake_quant(k_dequant[np.newaxis])
+            save_i8(f"{p}_k_proj_after_quant", k_fq, k_sc,
+                f"s{si} l{li} | K_PROJ after_quant | k_i8 [32int->8] | ({S},{k_fq.shape[-1]})")
+
+            # ── V PROJECTION ──────────────────────────────────────────────
+            v_acc_i32 = int8_matmul_i32(x_i8_raw[0], Wv_i8_raw)
+            save_i32(f"{p}_v_proj_after_gemm", v_acc_i32,
+                f"s{si} l{li} | V_PROJ after_gemm | INT32 = x_i8 @ Wv.T | ({S},{v_acc_i32.shape[-1]})")
+            if a.bv is not None:
+                bv_sc      = float(x_sc) * float(fake_quant(a.Wv)[1])
+                bv_i32     = np.round(a.bv / bv_sc).clip(-2147483648, 2147483647).astype(np.int32)
+                v_bias_i32 = v_acc_i32 + bv_i32
+                save_i32(f"{p}_v_proj_after_bias", v_bias_i32,
+                    f"s{si} l{li} | V_PROJ after_bias  | INT32 + bias_i32 | ({S},{v_bias_i32.shape[-1]})")
+            else:
+                v_bias_i32 = v_acc_i32
+            v_sc_combined = float(x_sc) * float(fake_quant(a.Wv)[1])
+            v_dequant     = v_bias_i32.astype(np.float64) * v_sc_combined
+            v_fq, v_sc_q  = fake_quant(v_dequant[np.newaxis])
+            save_i8(f"{p}_v_proj_after_quant", v_fq, v_sc_q,
+                f"s{si} l{li} | V_PROJ after_quant | v_i8 [32int->8] | ({S},{v_fq.shape[-1]})")
+
+            # reshape to (H,S,D) for attention
+            q_i8_h = to_int8_arr(q_fq, q_sc)[0].reshape(S, H, D).transpose(1, 0, 2)
+            k_i8_h = to_int8_arr(k_fq, k_sc)[0].reshape(S, H, D).transpose(1, 0, 2)
+            v_i8_h = to_int8_arr(v_fq, v_sc_q)[0].reshape(S, H, D).transpose(1, 0, 2)
+            q_h_b  = q_i8_h[np.newaxis]; k_h_b = k_i8_h[np.newaxis]; v_h_b = v_i8_h[np.newaxis]
+
+            # ── QKt GeMM ─────────────────────────────────────────────────
+            # INT8 x INT8 -> INT32 per head
+            scores_i32 = np.zeros((H, S, S), np.int32)
+            for h in range(H):
+                scores_i32[h] = int8_matmul_i32(q_i8_h[h], k_i8_h[h])
+            save_i32(f"{p}_qkt_after_gemm", scores_i32,
+                f"s{si} l{li} | QKT_GEMM after_gemm | INT32 = q_i8 @ k_i8.T (all heads) | ({H},{S},{S})")
+            # dequant -> Q5.26
+            qkt_sc    = float(q_sc) * float(k_sc)
+            scores_f  = scores_i32.astype(np.float64) * qkt_sc * a.scale
+            # add mask
+            if mask is not None:
+                scores_f = scores_f + mask[0]
+            mx      = scores_f.max(axis=-1, keepdims=True)
+            shifted = to_fixed(scores_f, 32, 26)
+            save_f32(f"{p}_qkt_after_q5_26", shifted,
+                f"s{si} l{li} | QKT_GEMM after_q5_26 | Q5.26 fixed-point | ({H},{S},{S})")
+
+            # ── SOFTMAX ───────────────────────────────────────────────────
+            exps      = _pla_exp(shifted)
+            probs_raw = exps / (exps.sum(axis=-1, keepdims=True) + 1e-9)
+            save_f32(f"{p}_softmax_after_pla_exp", probs_raw,
+                f"s{si} l{li} | SOFTMAX after_pla_exp | PLA exp output | ({H},{S},{S})")
+            save_f32(f"{p}_softmax_after_norm", probs_raw,
+                f"s{si} l{li} | SOFTMAX after_norm    | normalized probs | ({H},{S},{S})")
+            attn_fq, attn_sc = fake_quant(probs_raw[np.newaxis])
+            save_i8(f"{p}_softmax_after_quant", attn_fq, attn_sc,
+                f"s{si} l{li} | SOFTMAX after_quant   | attn_i8 [Q1.15->8] | ({H},{S},{S})")
+
+            # ── .V GeMM ───────────────────────────────────────────────────
+            attn_i8_raw = to_int8_arr(attn_fq, attn_sc)  # (1,H,S,S)
+            ctx_i32 = np.zeros((H, S, D), np.int32)
+            for h in range(H):
+                ctx_i32[h] = attn_i8_raw[0, h].astype(np.int32) @ v_i8_h[h].astype(np.int32)
+            ctx_merged_i32 = ctx_i32.transpose(1, 0, 2).reshape(S, H * D)
+            save_i32(f"{p}_dotv_after_gemm", ctx_merged_i32,
+                f"s{si} l{li} | DOTV_GEMM after_gemm | INT32 = attn_i8 @ v_i8 | ({S},{H*D})")
+            ctx_sc_combined = float(attn_sc) * float(v_sc_q)
+            ctx_dequant     = ctx_merged_i32.astype(np.float64) * ctx_sc_combined
+            ctx_fq, ctx_sc  = fake_quant(ctx_dequant[np.newaxis])
+            save_i8(f"{p}_dotv_after_quant", ctx_fq, ctx_sc,
+                f"s{si} l{li} | DOTV_GEMM after_quant | ctx_i8 [32int->8] | ({S},{H*D})")
+
+            # ── Wo PROJECTION ─────────────────────────────────────────────
+            ctx_i8_raw = to_int8_arr(ctx_fq, ctx_sc)[0]            # (S, H*D) int8
+            wo_acc_i32 = int8_matmul_i32(ctx_i8_raw, Wo_i8_raw)    # (S, H)   int32
+            save_i32(f"{p}_wo_proj_after_gemm", wo_acc_i32,
+                f"s{si} l{li} | WO_PROJ after_gemm | INT32 = ctx_i8 @ Wo.T | ({S},{wo_acc_i32.shape[-1]})")
+            if a.bo is not None:
+                bo_sc      = float(ctx_sc) * float(fake_quant(a.Wo)[1])
+                bo_i32     = np.round(a.bo / bo_sc).clip(-2147483648, 2147483647).astype(np.int32)
+                wo_bias_i32 = wo_acc_i32 + bo_i32
+                save_i32(f"{p}_wo_proj_after_bias", wo_bias_i32,
+                    f"s{si} l{li} | WO_PROJ after_bias  | INT32 + bias_i32 | ({S},{wo_bias_i32.shape[-1]})")
+            else:
+                wo_bias_i32 = wo_acc_i32
+            wo_sc_combined = float(ctx_sc) * float(fake_quant(a.Wo)[1])
+            wo_dequant     = wo_bias_i32.astype(np.float64) * wo_sc_combined
+            wo_fq, wo_sc   = fake_quant(wo_dequant[np.newaxis])
+            save_i8(f"{p}_wo_proj_after_quant", wo_fq, wo_sc,
+                f"s{si} l{li} | WO_PROJ after_quant | wo_i8 [32int->8] | ({S},{wo_fq.shape[-1]})")
+
+            # ── RESIDUAL ADD 1 + LN1 ──────────────────────────────────────
+            x_res_fq,  x_res_sc  = fake_quant(x)
+            wo_res_fq, wo_res_sc = fake_quant(wo_dequant[np.newaxis])
+            x_res_i8  = to_int8_arr(x_res_fq,  x_res_sc)
+            wo_res_i8 = to_int8_arr(wo_res_fq, wo_res_sc)
+            res1_f = (x_res_i8.astype(np.float64)  * float(x_res_sc) +
+                      wo_res_i8.astype(np.float64) * float(wo_res_sc))
+            save_f32(f"{p}_resadd1_ln1_after_add", res1_f[0],
+                f"s{si} l{li} | RESADD1_LN1 after_add  | x_i8*sc + wo_i8*sc (float dequant sum) | ({S},{res1_f.shape[-1]})")
+            ln1_out = approx_layernorm(res1_f, layer.ln1_gamma, layer.ln1_beta, eps=1e-12)
+            save_f32(f"{p}_resadd1_ln1_after_ln", ln1_out[0],
+                f"s{si} l{li} | RESADD1_LN1 after_ln   | LayerNorm output (pre-requantize) | ({S},{ln1_out.shape[-1]})")
+            x1_fq, x1_sc = fake_quant(ln1_out)
+            save_i8(f"{p}_resadd1_ln1_after_quant", x1_fq, x1_sc,
+                f"s{si} l{li} | RESADD1_LN1 after_quant| x_i8 post-LN1 [?->8] | ({S},{x1_fq.shape[-1]})")
+
+            # ── FFN1 GeMM ─────────────────────────────────────────────────
+            x1_i8_raw  = to_int8_arr(x1_fq,  x1_sc)[0]               # (S,H) int8
+            W1_fq, W1_sc = fake_quant(ff.W1)
+            W1_i8_raw  = to_int8_arr(W1_fq, W1_sc)                    # (FFN,H) int8
+            ffn1_acc_i32 = int8_matmul_i32(x1_i8_raw, W1_i8_raw)      # (S,FFN) int32
+            save_i32(f"{p}_ffn1_gemm_after_gemm", ffn1_acc_i32,
+                f"s{si} l{li} | FFN1_GEMM after_gemm | INT32 = x_i8 @ W1.T | ({S},{ffn1_acc_i32.shape[-1]})")
+            if ff.b1 is not None:
+                b1_sc_combined = float(x1_sc) * float(W1_sc)
+                b1_i32         = np.round(ff.b1 / b1_sc_combined).clip(-2147483648, 2147483647).astype(np.int32)
+                ffn1_bias_i32  = ffn1_acc_i32 + b1_i32
+                save_i32(f"{p}_ffn1_gemm_after_bias", ffn1_bias_i32,
+                    f"s{si} l{li} | FFN1_GEMM after_bias | INT32 + bias_i32 | ({S},{ffn1_bias_i32.shape[-1]})")
+            else:
+                ffn1_bias_i32 = ffn1_acc_i32
+            ffn1_sc_combined = float(x1_sc) * float(W1_sc)
+            ffn1_dequant     = ffn1_bias_i32.astype(np.float64) * ffn1_sc_combined
+            ffn1_q10_22      = to_fixed(ffn1_dequant[np.newaxis], 32, 22)
+            save_f32(f"{p}_ffn1_gemm_after_q10_22", ffn1_q10_22[0],
+                f"s{si} l{li} | FFN1_GEMM after_q10_22| Q10.22 fixed-point | ({S},{ffn1_q10_22.shape[-1]})")
+
+            # ── GCU ───────────────────────────────────────────────────────
+            gcu_out    = gcu(ffn1_q10_22)
+            gcu_q48_16 = to_fixed(gcu_out, 64, 16)
+            save_f32(f"{p}_gcu_after_gcu", gcu_out[0],
+                f"s{si} l{li} | GCU after_gcu    | raw GCU output | ({S},{gcu_out.shape[-1]})")
+            save_f32(f"{p}_gcu_after_q48_16", gcu_q48_16[0],
+                f"s{si} l{li} | GCU after_q48_16 | Q48.16 snap | ({S},{gcu_q48_16.shape[-1]})")
+            mid_fq, mid_sc = fake_quant(gcu_q48_16)
+            save_i8(f"{p}_gcu_after_quant", mid_fq, mid_sc,
+                f"s{si} l{li} | GCU after_quant  | mid_i8 [Q48.16->8] | ({S},{mid_fq.shape[-1]})")
+
+            # ── FFN2 GeMM ─────────────────────────────────────────────────
+            mid_i8_raw = to_int8_arr(mid_fq, mid_sc)[0]               # (S,FFN) int8
+            W2_fq, W2_sc = fake_quant(ff.W2)
+            W2_i8_raw  = to_int8_arr(W2_fq, W2_sc)                    # (H,FFN) int8
+            ffn2_acc_i32 = int8_matmul_i32(mid_i8_raw, W2_i8_raw)     # (S,H) int32
+            save_i32(f"{p}_ffn2_gemm_after_gemm", ffn2_acc_i32,
+                f"s{si} l{li} | FFN2_GEMM after_gemm | INT32 = mid_i8 @ W2.T | ({S},{ffn2_acc_i32.shape[-1]})")
+            if ff.b2 is not None:
+                b2_sc_combined = float(mid_sc) * float(W2_sc)
+                b2_i32         = np.round(ff.b2 / b2_sc_combined).clip(-2147483648, 2147483647).astype(np.int32)
+                ffn2_bias_i32  = ffn2_acc_i32 + b2_i32
+                save_i32(f"{p}_ffn2_gemm_after_bias", ffn2_bias_i32,
+                    f"s{si} l{li} | FFN2_GEMM after_bias | INT32 + bias_i32 | ({S},{ffn2_bias_i32.shape[-1]})")
+            else:
+                ffn2_bias_i32 = ffn2_acc_i32
+            ffn2_sc_combined = float(mid_sc) * float(W2_sc)
+            ffn2_dequant     = ffn2_bias_i32.astype(np.float64) * ffn2_sc_combined
+            ffn2_fq, ffn2_sc = fake_quant(ffn2_dequant[np.newaxis])
+            save_i8(f"{p}_ffn2_gemm_after_quant", ffn2_fq, ffn2_sc,
+                f"s{si} l{li} | FFN2_GEMM after_quant| ffn2_i8 [32int->8] | ({S},{ffn2_fq.shape[-1]})")
+
+            # ── RESIDUAL ADD 2 + LN2 ──────────────────────────────────────
+            x1_res_fq2,  x1_res_sc2  = fake_quant(ln1_out)
+            ffn2_res_fq, ffn2_res_sc = fake_quant(ffn2_dequant[np.newaxis])
+            x1_res_i8   = to_int8_arr(x1_res_fq2,  x1_res_sc2)
+            ffn2_res_i8 = to_int8_arr(ffn2_res_fq, ffn2_res_sc)
+            res2_f = (x1_res_i8.astype(np.float64)   * float(x1_res_sc2) +
+                      ffn2_res_i8.astype(np.float64) * float(ffn2_res_sc))
+            save_f32(f"{p}_resadd2_ln2_after_add", res2_f[0],
+                f"s{si} l{li} | RESADD2_LN2 after_add  | x_i8*sc + ffn2_i8*sc | ({S},{res2_f.shape[-1]})")
+            ln2_out = approx_layernorm(res2_f, layer.ln2_gamma, layer.ln2_beta, eps=1e-12)
+            save_f32(f"{p}_resadd2_ln2_after_ln", ln2_out[0],
+                f"s{si} l{li} | RESADD2_LN2 after_ln   | LayerNorm output | ({S},{ln2_out.shape[-1]})")
+            x2_fq, x2_sc = fake_quant(ln2_out)
+            save_i8(f"{p}_resadd2_ln2_after_quant", x2_fq, x2_sc,
+                f"s{si} l{li} | RESADD2_LN2 after_quant| x_i8 post-LN2 = LAYER OUTPUT | ({S},{x2_fq.shape[-1]})")
+
+            x = ln2_out   # feed to next layer
+
+            n_saved = len([k for k in store if k.startswith(f"s{si}_l{li}_")])
+            print(f"    layer {li:2d} done  ({n_saved} tensors)")
+
+    # ── save npz ──────────────────────────────────────────────────────────────
+    print(f"\n  Saving {len(store)} tensors -> {out_npz} ...")
+    np.savez_compressed(out_npz, **store)
+    total_mb = sum(v.nbytes for v in store.values()) / 1024**2
+    print(f"  Uncompressed : {total_mb:.1f} MB")
+
+    # ── save index ────────────────────────────────────────────────────────────
+    with open(out_index, 'w', encoding='utf-8') as f:
+        f.write("=" * 78 + "\n")
+        f.write("  ACTIVATION RECORDER - INDEX\n")
+        f.write(f"  Tensors : {len(index)}   Samples : {n_samples}   Layers : 12\n")
+        f.write("  INT8  keys have a companion _scale key (float32)\n")
+        f.write("  INT32 keys are raw GeMM accumulators\n")
+        f.write("  float32 keys are dequant/fixed-point domain values\n")
+        f.write("=" * 78 + "\n\n")
+        f.write("  LOAD:\n")
+        f.write("    data    = np.load('activations.npz')\n")
+        f.write("    q_i8    = data['s0_l0_q_proj_after_quant']        # int8\n")
+        f.write("    q_scale = data['s0_l0_q_proj_after_quant_scale']  # float32\n")
+        f.write("    q_float = q_i8.astype(np.float32) * q_scale\n\n")
+        f.write("-" * 78 + "\n")
+        prev_s, prev_l = None, None
+        for key, desc in index.items():
+            parts  = key.split('_')
+            si_tag = parts[0]
+            li_tag = parts[1]
+            if si_tag != prev_s:
+                f.write(f"\n{'='*78}\n  {si_tag.upper()}\n{'='*78}\n")
+                prev_s = si_tag; prev_l = None
+            if li_tag != prev_l:
+                f.write(f"\n  [{li_tag}]\n")
+                prev_l = li_tag
+            shape = list(store[key].shape)
+            dtype = str(store[key].dtype)
+            f.write(f"  {key:<60} {dtype:<8} shape={shape}\n")
+            f.write(f"    {desc}\n\n")
+
+    print(f"  Index saved  -> {out_index}")
 
 if __name__ == "__main__":
     w = r"/kaggle/input/datasets/khalednabil676/sst-2-weight-file/weights_with_scales.npz"
