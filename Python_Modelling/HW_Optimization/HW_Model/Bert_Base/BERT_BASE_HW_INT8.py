@@ -21,17 +21,36 @@ from collections import defaultdict
 
 class ScaleTracker:
     """
-    Tracks per-tensor activation scales and GELU input ranges during evaluation.
-    Collected scales are saved into the .npz for hardware register programming.
+    Tracks per-tensor activation scales at EVERY Quantize.apply site.
+
+    Two collections:
+      layer_input_scales  — input scales recorded inside QuantizedLinear
+                            (one entry per forward call, keyed by layer name)
+      activation_scales   — output scales at every other quantization point:
+                            Q/K/V outputs, softmax, ·V context, Wo, GCU,
+                            ffn2, residual operands, LN1, LN2 per layer.
+
+    Both are saved to the .npz so the hardware has static scales for every
+    register that needs programming before inference.
     """
     def __init__(self):
         self.layer_input_scales = defaultdict(list)
+        self.activation_scales  = defaultdict(list)   # keyed by full node name
         self.gelu_input_ranges  = []
         self.enabled = False
 
     def record_input_scale(self, layer_name, scale):
         if self.enabled and len(self.layer_input_scales[layer_name]) < 500:
             self.layer_input_scales[layer_name].append(scale)
+
+    def record_activation_scale(self, name: str, x: torch.Tensor):
+        """Record max(|x|)/127 for a tensor at a Quantize.apply site."""
+        if self.enabled and len(self.activation_scales[name]) < 500:
+            with torch.no_grad():
+                abs_max = x.detach().abs().max().item()
+                self.activation_scales[name].append(
+                    abs_max / 127.0 if abs_max > 1e-8 else 1e-8
+                )
 
     def record_gelu_input(self, x):
         if self.enabled and len(self.gelu_input_ranges) < 2000:
@@ -42,21 +61,28 @@ class ScaleTracker:
                 'std':  x.std().item(),
             })
 
+    def _summarise(self, scales):
+        arr = np.array(scales)
+        return {
+            'mean':    float(arr.mean()),
+            'median':  float(np.median(arr)),
+            'std':     float(arr.std()),
+            'min':     float(arr.min()),
+            'max':     float(arr.max()),
+            'p95':     float(np.percentile(arr, 95)),
+            'samples': len(arr),
+        }
+
     def get_statistics(self):
         stats = {}
 
         for layer_name, scales in self.layer_input_scales.items():
             if scales:
-                arr = np.array(scales)
-                stats[layer_name] = {
-                    'mean':    float(arr.mean()),
-                    'median':  float(np.median(arr)),
-                    'std':     float(arr.std()),
-                    'min':     float(arr.min()),
-                    'max':     float(arr.max()),
-                    'p95':     float(np.percentile(arr, 95)),
-                    'samples': len(arr),
-                }
+                stats[layer_name] = self._summarise(scales)
+
+        for name, scales in self.activation_scales.items():
+            if scales:
+                stats[name] = self._summarise(scales)
 
         if self.gelu_input_ranges:
             all_mins  = [r['min']  for r in self.gelu_input_ranges]
@@ -202,12 +228,16 @@ class PLASoftmax(nn.Module):
         return self.coeffs_m[indices] * x_clamped + self.coeffs_c[indices]
 
     def forward(self, scores):
-        max_scores, _     = scores.max(dim=-1, keepdim=True)
-        shifted           = scores - max_scores
-        shifted_fx        = to_fixed_point(shifted, 32, 26)   # Q5.26 fixed-point
-        exps              = self.pla_exp(shifted_fx)
-        softmax_out       = exps / (exps.sum(dim=-1, keepdim=True) + 1e-9)
-        return Quantize.apply(softmax_out)   # per-tensor quantize output
+        max_scores, _ = scores.max(dim=-1, keepdim=True)
+        shifted       = scores - max_scores
+        shifted_fx    = to_fixed_point(shifted, 32, 26)       # QKt INT32 → Q5.26
+        exps          = self.pla_exp(shifted_fx)
+        softmax_out   = exps / (exps.sum(dim=-1, keepdim=True) + 1e-9)
+        # PDF: "Softmax Quantization Q1.15 to 8 bit"
+        # Snap to Q1.15 grid (hardware softmax output register precision)
+        # before requantizing to INT8.
+        softmax_q1_15 = to_fixed_point(softmax_out, 16, 15)   # Q1.15 intermediate
+        return Quantize.apply(softmax_q1_15)                   # Q1.15 → INT8
 
 
 # ==============================================================================
@@ -370,6 +400,8 @@ class MultiHeadSelfAttention(nn.Module):
         self.scale     = self.head_dim ** -0.5
 
         base = f'bert.encoder.layers.{layer_id}.attention'
+        self.base      = base
+        self.layer_id  = layer_id
         self.q       = QuantizedLinear(hidden_size, hidden_size,
                                        layer_name=f'{base}.q')
         self.k       = QuantizedLinear(hidden_size, hidden_size,
@@ -388,14 +420,22 @@ class MultiHeadSelfAttention(nn.Module):
 
     def forward(self, hidden_states, attention_mask=None):
         TILE_SIZE = 32
+        b = self.base   # e.g. 'bert.encoder.layers.0.attention'
 
         # ── Q / K / V GeMM (INT8×INT8 → INT32) → Quantize → INT8 buffer
         # One per-tensor Quantize.apply after the full projection (not per tile).
         # This is the INT8 output buffer the hardware writes after the GeMM+bias.
         # All tiles downstream read from this same buffer with the same scale.
-        q_full = Quantize.apply(self.transpose_for_scores(self.q(hidden_states)))
-        k_full = Quantize.apply(self.transpose_for_scores(self.k(hidden_states)))
-        v_full = Quantize.apply(self.transpose_for_scores(self.v(hidden_states)))
+        q_raw  = self.transpose_for_scores(self.q(hidden_states))
+        k_raw  = self.transpose_for_scores(self.k(hidden_states))
+        v_raw  = self.transpose_for_scores(self.v(hidden_states))
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{b}.q.output_scale',   q_raw)
+            scale_tracker.record_activation_scale(f'{b}.k.output_scale',   k_raw)
+            scale_tracker.record_activation_scale(f'{b}.v.output_scale',   v_raw)
+        q_full = Quantize.apply(q_raw)
+        k_full = Quantize.apply(k_raw)
+        v_full = Quantize.apply(v_raw)
 
         B, H, Sq, D = q_full.shape
         Sk           = k_full.size(2)
@@ -418,7 +458,10 @@ class MultiHeadSelfAttention(nn.Module):
             attn_scores = attn_scores + attention_mask
 
         # PLASoftmax: INT32 scores → Q5.26 → PLA-exp → softmax → Quantize → INT8
-        attn_probs = self.attn_dropout(self.softmax(attn_scores))
+        attn_probs_raw = self.softmax(attn_scores)
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{b}.softmax.output_scale', attn_probs_raw)
+        attn_probs = self.attn_dropout(attn_probs_raw)
 
         # ── ·V GeMM (INT8×INT8 → INT32) → Quantize → INT8 
         # V is already INT8 from the buffer above.
@@ -431,12 +474,16 @@ class MultiHeadSelfAttention(nn.Module):
             )
 
         # Quantize ·V output → INT8  (PDF: Quantize 32→INT8 after ·V GeMM)
-        context = Quantize.apply(
-            context.permute(0, 2, 1, 3).contiguous().view(hidden_states.size())
-        )
+        context_merged = context.permute(0, 2, 1, 3).contiguous().view(hidden_states.size())
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{b}.ctx.output_scale', context_merged)
+        context = Quantize.apply(context_merged)
 
         # ── Wo GeMM (INT8×INT8 → INT32) → Bias(INT32) → Quantize → INT8
-        return self.proj_dropout(Quantize.apply(self.out(context)))
+        wo_out = self.out(context)
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{b}.out.output_scale', wo_out)
+        return self.proj_dropout(Quantize.apply(wo_out))
 
 
 # ==============================================================================
@@ -446,6 +493,8 @@ class FeedForward(nn.Module):
                  dropout=0.1, layer_id=0):
         super().__init__()
         base = f'bert.encoder.layers.{layer_id}.ffn'
+        self.base     = base
+        self.layer_id = layer_id
         self.dense_1 = QuantizedLinear(hidden_size, intermediate_size,
                                        layer_name=f'{base}.dense_1')
         self.dense_2 = QuantizedLinear(intermediate_size, hidden_size,
@@ -457,14 +506,20 @@ class FeedForward(nn.Module):
         TILE_SIZE = 32
         B, S, _ = x.shape
 
-        # ── ffn_1 GeMM (INT8×INT8 → INT32) → Dequant→Q10.22 → GELU → Q48.12→INT8
-        # to_fixed_point inside GCU handles the Q10.22 dequant step.
-        # Quantize.apply after GCU simulates Q48.12→INT8 at the GCU output register.
+        # ── ffn_1 GeMM (INT8×INT8 → INT32) → Dequant→Q10.22 → GELU → Q48.16→INT8
+        # to_fixed_point(Q10.22) dequantizes the INT32 accumulator to the fixed-point
+        # format the hardware GELU unit is calibrated for (PDF: dequant 32→Q10.22).
+        # Quantize.apply after GCU simulates Q48.16→INT8 at the GCU output register.
         out1 = torch.zeros(B, S, self.dense_1.out_features, device=x.device)
         for i in range(0, S, TILE_SIZE):
             out1[:, i:i+TILE_SIZE, :] = self.dense_1(x[:, i:i+TILE_SIZE, :])
 
-        x = Quantize.apply(self.gcu(out1))   # Q48.12 → INT8
+        out1_q10_22  = to_fixed_point(out1, 32, 22)          # INT32 → Q10.22 dequant
+        gcu_out      = self.gcu(out1_q10_22)
+        gcu_q48_16   = to_fixed_point(gcu_out, 64, 16)      # PDF: GCU output → Q48.16
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{self.base}.gcu.output_scale', gcu_q48_16)
+        x = Quantize.apply(gcu_q48_16)                       # Q48.16 → INT8
 
         # ── ffn_2 GeMM (INT8×INT8 → INT32) → Bias(INT32) → Quantize → INT8
         out2 = torch.zeros(B, S, self.dense_2.out_features, device=x.device)
@@ -472,6 +527,8 @@ class FeedForward(nn.Module):
             out2[:, i:i+TILE_SIZE, :] = self.dense_2(x[:, i:i+TILE_SIZE, :])
 
         # Quantize ffn_2 output → INT8
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{self.base}.dense_2.output_scale', out2)
         return self.dropout(Quantize.apply(out2))
 
 
@@ -481,6 +538,7 @@ class TransformerEncoderLayer(nn.Module):
     def __init__(self, hidden_size=768, num_attention_heads=12,
                  intermediate_size=3072, dropout=0.1, layer_id=0):
         super().__init__()
+        self.layer_id       = layer_id
         self.attention      = MultiHeadSelfAttention(hidden_size,
                                                      num_attention_heads,
                                                      dropout, layer_id=layer_id)
@@ -490,25 +548,30 @@ class TransformerEncoderLayer(nn.Module):
         self.ffn_layer_norm  = ApproximateLayerNorm(hidden_size, eps=1e-12)
 
     def forward(self, x, attention_mask=None):
+        p = f'bert.encoder.layers.{self.layer_id}'
         attn_output  = self.attention(x, attention_mask=attention_mask)
 
-        # ── Residual Add → Dequant→Q5.26 → LayerNorm → INT8
-        #      → LayerNorm → Quantize→INT8
-        # Both x and attn_output are already INT8 from their respective
-        # Quantize.apply outputs (Wo output and encoder input).
-        # to_fixed_point(Q5.26) inside ApproximateLayerNorm handles the dequant step.
-        # Quantize.apply after LayerNorm = LayerNorm output → INT8 register.
+        # ── Residual Add 1: INT8 + INT8 → dequantize → LayerNorm → INT8
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{p}.residual1.x_scale',    x)
+            scale_tracker.record_activation_scale(f'{p}.residual1.attn_scale', attn_output)
         norm_input_1 = Quantize.apply(x) + Quantize.apply(attn_output)
-        x            = Quantize.apply(self.attn_layer_norm(norm_input_1))  # LN1 → INT8
+        ln1_out = self.attn_layer_norm(norm_input_1)
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{p}.attn_layer_norm.output_scale', ln1_out)
+        x = Quantize.apply(ln1_out)
 
         ffn_output   = self.ffn(x)
 
-        # ── Residual Add → Dequant→Q5.26 → LayerNorm → INT8
-        #      → LayerNorm → Quantize→INT8
-        #
-        # x is INT8 from LN1 above. ffn_output is INT8 from ffn_2 Quantize.apply.
+        # ── Residual Add 2: same pattern
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{p}.residual2.x_scale',   x)
+            scale_tracker.record_activation_scale(f'{p}.residual2.ffn_scale', ffn_output)
         norm_input_2 = Quantize.apply(x) + Quantize.apply(ffn_output)
-        x            = Quantize.apply(self.ffn_layer_norm(norm_input_2))   # LN2 → INT8
+        ln2_out = self.ffn_layer_norm(norm_input_2)
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{p}.ffn_layer_norm.output_scale', ln2_out)
+        x = Quantize.apply(ln2_out)
         return x
 
 
@@ -671,6 +734,19 @@ def extract_and_save_quantized_weights(model: nn.Module, file_path: str):
     np.savez_compressed(file_path, **quantized_state_dict)
     print(f"\n  Saved quantized weights to: {file_path}")
 
+    # ── Save activation scales (median across calibration batches) to npz ─────
+    act_scales_file = file_path.replace('.npz', '_activation_scales.npz')
+    act_scales_dict = {}
+    for name, stat in scale_stats.items():
+        if 'median' in stat and (
+            'output_scale' in name or
+            'residual' in name
+        ):
+            act_scales_dict[name] = np.float32(stat['median'])
+            print(f"  act_scale  {name}: {stat['median']:.6e}")
+    np.savez_compressed(act_scales_file, **act_scales_dict)
+    print(f"\n  Saved {len(act_scales_dict)} activation scales to: {act_scales_file}")
+
     # Save scale metadata JSON
     metadata_file = file_path.replace('.npz', '_scale_metadata.json')
     with open(metadata_file, 'w') as f:
@@ -707,12 +783,14 @@ def extract_and_save_quantized_weights(model: nn.Module, file_path: str):
     print("EXTRACTION SUMMARY")
     print("=" * 70)
     total_mb = sum(v.nbytes for v in quantized_state_dict.values()) / (1024 ** 2)
-    n_input_scales = sum(1 for k in quantized_state_dict if '.input_scale' in k)
-    n_int32_bias   = sum(1 for k, v in quantized_state_dict.items()
-                         if 'bias' in k and hasattr(v, 'dtype')
-                         and v.dtype == np.int32)
+    n_input_scales  = sum(1 for k in quantized_state_dict if '.input_scale' in k)
+    n_act_scales    = len(act_scales_dict)
+    n_int32_bias    = sum(1 for k, v in quantized_state_dict.items()
+                          if 'bias' in k and hasattr(v, 'dtype')
+                          and v.dtype == np.int32)
     print(f"  Total size:                 {total_mb:.2f} MB")
     print(f"  Layers with input scales:   {n_input_scales}")
+    print(f"  Activation scales saved:    {n_act_scales}")
     print(f"  INT32 biases:               {n_int32_bias}")
     print("=" * 70)
 
