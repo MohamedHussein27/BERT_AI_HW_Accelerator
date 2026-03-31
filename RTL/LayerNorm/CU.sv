@@ -1,84 +1,143 @@
-// TODO
-module layer_norm_fsm #(
+`timescale 1ns / 1ps
+import PE_pkg::*;
 
-) (
+module layernorm_fsm (
+    input  logic       clk,
+    input  logic       rst_n,
+    
+    // Handshake from Main System Controller
+    input  logic       data_valid, 
 
+    // Internal PE & Datapath Control
+    output pe_op_e     pe_opcode,
+    output logic       accum_en,
+    output logic       accum_fetch,
+    
+    // SQRT Control
+    output logic       sqrt_valid_in,
+    input  logic       sqrt_valid_out,
+    output logic       sqrt_busy, // for indicating square root module is still calculating
+    
+    // Top-Level Status
+    output logic       out_valid,
+    output logic       done
 );
 
-    // FSM
     typedef enum logic [2:0] {
-        IDLE,
-        LN_MEAN,     // calc mean
-        LN_VAR,      // calc variance
-        LN_STD_NORM, // calc 1/root(var)
-        LN_WGT,      // multibly by weights
-        LN_BIAS      // add bias
+        ST_PASS1_MEAN,
+        ST_LOAD_MEAN,
+        ST_PASS2_VAR,
+        ST_TRIG_SQRT,
+        ST_CALC_SQRT,
+        ST_PASS3_NORM
     } state_t;
 
-    state_t cs, ns;
+    state_t state, next_state;
 
+    logic [4:0] chunk_cnt; // 0 to 23
+    logic [8:0] row_cnt;   // 0 to 511
 
+    // ========================================================
+    // Block 1: Sequential Logic (State Memory & Counters)
+    // ========================================================
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            cs <= IDLE;
-        else
-            cs <= ns;
+        if (!rst_n) begin
+            state     <= ST_PASS1_MEAN;
+            chunk_cnt <= '0;
+            row_cnt   <= '0;
+        end else begin
+            state <= next_state;
+            
+            // Only increment chunk_cnt when valid data is actively being processed
+            if (data_valid && (state == ST_PASS1_MEAN || state == ST_PASS2_VAR || state == ST_PASS3_NORM)) begin
+                if (chunk_cnt == 5'd23) 
+                    chunk_cnt <= '0;
+                else                    
+                    chunk_cnt <= chunk_cnt + 1;
+            end
+
+            // Increment row counter at the very end of Pass 3
+            if (state == ST_PASS3_NORM && data_valid && chunk_cnt == 5'd23) begin
+                row_cnt <= row_cnt + 1;
+            end
+        end
     end
 
-    // Next state logic
+    // ========================================================
+    // Block 2: Combinational Logic (Next State Routing)
+    // ========================================================
     always_comb begin
-        case (cs)
-            IDLE    : begin
-                
-            end
-            LN_MEAN : begin
-                
-            end
-            LN_VAR  :begin
-                
-            end 
-            LN_STD  : begin
-                
-            end
-            LN_NORM : begin
-                
-            end 
-            LN_WGT  : begin
-                
-            end
-            LN_BIAS : begin
-                
-            end
-            default :
+        // Default assignment to prevent latches
+        next_state = state; 
+        
+        case (state)
+            ST_PASS1_MEAN: if (data_valid && chunk_cnt == 5'd23) next_state = ST_LOAD_MEAN;
+            
+            ST_LOAD_MEAN:  next_state = ST_PASS2_VAR; // 1-cycle automatic transition
+            
+            ST_PASS2_VAR:  if (data_valid && chunk_cnt == 5'd23) next_state = ST_TRIG_SQRT;
+            
+            ST_TRIG_SQRT:  next_state = ST_CALC_SQRT; // 1-cycle automatic transition
+            
+            ST_CALC_SQRT:  if (sqrt_valid_out) next_state = ST_PASS3_NORM;
+            
+            ST_PASS3_NORM: if (data_valid && chunk_cnt == 5'd23) next_state = ST_PASS1_MEAN;
+            
+            default:       next_state = ST_PASS1_MEAN;
         endcase
     end
 
-    // Output logic
+    // ========================================================
+    // Block 3: Combinational Logic (Outputs)
+    // ========================================================
     always_comb begin
+        // Default assignments to prevent latches
+        pe_opcode     = OP_PASS_X;
+        accum_en      = 1'b0;
+        accum_fetch   = 1'b0;
+        sqrt_valid_in = 1'b0;
+        out_valid     = 1'b0;
+        done          = 1'b0;
+        
+        case (state)
+            ST_PASS1_MEAN: begin
+                pe_opcode = OP_PASS_X;
+                accum_en  = data_valid;
+                if (data_valid && chunk_cnt == 5'd23) accum_fetch = 1'b1;
+            end
 
-        case (cs)
-            IDLE    : begin
-                
+            ST_LOAD_MEAN: begin
+                pe_opcode = OP_LOAD_MEAN; 
             end
-            LN_MEAN : begin
-                
+
+            ST_PASS2_VAR: begin
+                pe_opcode = OP_VAR_SQR;
+                accum_en  = data_valid;
+                if (data_valid && chunk_cnt == 5'd23) accum_fetch = 1'b1;
             end
-            LN_VAR  :begin
-                
-            end 
-            LN_STD  : begin
-                
+
+            ST_TRIG_SQRT: begin
+                sqrt_valid_in = 1'b1; 
             end
-            LN_NORM : begin
-                
-            end 
-            LN_WGT  : begin
-                
+
+            ST_CALC_SQRT: begin
+                // All outputs remain at default 0 while waiting
+                sqrt_busy = 1'b1;
             end
-            LN_BIAS : begin
+
+            ST_PASS3_NORM: begin
+                pe_opcode = OP_NORMALIZE; 
+                out_valid = data_valid;   
                 
+                // Assert done only when the final chunk of the final row is valid
+                if (data_valid && chunk_cnt == 5'd23 && row_cnt == 9'd511) begin
+                    done = 1'b1;
+                end
             end
-            default :
+            
+            default: begin
+                pe_opcode = OP_PASS_X;
+            end
         endcase
     end
 endmodule
