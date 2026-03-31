@@ -16,7 +16,8 @@ module fetch_logic_gen #(
     input  wire [3:0]                   Buffer_Select,       // control signal to choose which buffer we are reading from, you will find it at the end of the code
     input  wire [1:0]                   Tiles_Control,       // control signal to choose how many reads we will do, if weights so we will tile 32 times, if inputs we will tile 512 times
     input  wire                         Double_buffering,    // control signal to make us read from the double buffering addresses in weights and inputs 
-
+    input  wire                         hold_addr_ptr,       // control signal to make the address stuck to the same row (used in layerNorm as we want to access every row 3 times)
+    
     // BRAM Interface
     output reg  [ADDR_WIDTH-1:0]        bram_addr,           // Address sent to the BRAM
     output reg                          bram_en,             // Enable signal for the BRAM read port
@@ -94,7 +95,7 @@ module fetch_logic_gen #(
                             transpose_addr_pointer <= 0;
                         end
                 // Increment the pointer AFTER a fetch completes
-                    else if (current_state == DONE && Buffer_Select != 3'b011) // as not to incerement pointers after a Kt fetching ( 3'b011 is Q but we know that Q comes after Kt)
+                    else if (current_state == DONE && Buffer_Select != 3'b011 && !hold_addr_ptr) // as not to incerement pointers after a Kt fetching ( 3'b011 is Q but we know that Q comes after Kt)
                         begin
                             transpose_addr_pointer <= transpose_addr_pointer + 1;
                             addr_ptr               <= addr_ptr + 1;
@@ -221,7 +222,7 @@ module fetch_logic_gen #(
             case (Tiles_Control)
                 2'b00: NUM_FETCHES_PER_TILE = 14'd512;
                 2'b01: NUM_FETCHES_PER_TILE = 14'd32;
-                2'b10: NUM_FETCHES_PER_TILE = 14'd12288; // used with add & norm buffers
+                2'b10: NUM_FETCHES_PER_TILE = 14'd24; // used with add & norm buffers, we need to wait a certain time between passign rows
             endcase
         end
 endmodule
