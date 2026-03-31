@@ -14,7 +14,8 @@ module layernorm_top #(
     // Output to Next Layer (or Write-back Buffer)
     output logic signed [DATAWIDTH-1:0] norm_out_data [0:31],
     output logic        norm_out_valid,
-    output logic        done
+    output logic        done,
+    output logic        busy // mainly for square root module as it the one with most delay
 );
 
     localparam logic signed [31:0] RECIP_768 = 32'd87381; // 1/768 in Q5.26
@@ -41,6 +42,7 @@ module layernorm_top #(
         .accum_fetch(accum_fetch),
         .sqrt_valid_in(sqrt_vin), 
         .sqrt_valid_out(sqrt_vout),
+        .sqrt_busy(busy),
         .out_valid(norm_out_valid), 
         .done(done)
     );
