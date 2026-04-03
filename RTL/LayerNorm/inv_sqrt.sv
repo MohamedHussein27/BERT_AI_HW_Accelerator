@@ -9,9 +9,7 @@ module inv_sqrt #(
     input  logic signed [DATAWIDTH-1:0] data_in, // Q5.26 format
 
     output logic signed [DATAWIDTH-1:0] data_out,
-    output logic valid_out,
-    output logic error,
-    output logic busy
+    output logic valid_out
 );
 
     // Parameters & Constants
@@ -92,8 +90,6 @@ module inv_sqrt #(
     // OUTPUT LOGIC
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            error <= 0;
-            busy <= 0;
             valid_out <= 0;
             iter_cnt <= 0;
             data_out <= 0;
@@ -107,17 +103,9 @@ module inv_sqrt #(
             case (cs)
                 IDLE: begin
                     valid_out <= 0;
-                    error <= 0;
-                    busy <= 0;
                     iter_cnt <= 0;
                     if (valid_in) begin
                         a_reg <= data_in;
-                        if (data_in <= 0) begin
-                            data_out <= 0; 
-                            error <= 1;
-                        end else begin
-                            busy <= 1;
-                        end
                     end
                 end
 
@@ -143,13 +131,11 @@ module inv_sqrt #(
                             data_out <= ((MUL_WIDTH'(x_current >>> 1) * ax2) >>> FRAC_BITS);
 
                         valid_out <= 1;
-                        busy <= 0;
                     end else begin
                         iter_cnt <= iter_cnt + 1;
                         xn <= (MUL_WIDTH'(x_current >>> 1) * ax2) >>> FRAC_BITS;
                     end
                 end
-
             endcase
         end
     end
