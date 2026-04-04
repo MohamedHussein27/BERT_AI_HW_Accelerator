@@ -99,7 +99,7 @@ module tb_layernorm_top;
         // PARAMETER LOADING (During SQRT)
         // -------------------------
         // Wait until FSM explicitly enters ST_CALC_SQRT (State 4)
-        wait(dut.u_fsm.state == 3'd4);
+        wait(dut.u_fsm.state == 3'd5);
         $display("[TIME %0t] FSM entered SQRT Wait. Injecting Gamma and Beta!", $time);
         
         // Cycle 1: load_parameters == 0 -> PE expects Gamma
@@ -117,7 +117,7 @@ module tb_layernorm_top;
         for (i = 0; i < 32; i++) buffer_rdata[i] = '0;
 
         // Wait until FSM enters ST_PASS3_NORM (State 5)
-        wait(dut.u_fsm.state == 3'd5);
+        wait(dut.u_fsm.state == 3'd6);
 
         // -------------------------
         // PASS 3: NORMALIZATION & AFFINE
@@ -220,7 +220,7 @@ module tb_layernorm_top;
             end
 
             for (i = 0; i < 768; i++) begin
-                rand_val = (real'($urandom_range(0,1) % 1000) / 500.0); // -2.0 to +2.0
+                rand_val = (real'($random % 1000) / 120.0); // -8.33 to +8.33
                 test_row[i] = real'(rand_val * Q_SCALE);       
                 sum += rand_val;
             end
