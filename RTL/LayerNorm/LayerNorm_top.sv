@@ -106,9 +106,7 @@ module layernorm_top #(
         .valid_in(sqrt_vin),
         .data_in(var_plus_eps), 
         .data_out(sqrt_result), 
-        .valid_out(sqrt_vout), 
-        .error(),  // TODO
-        .busy()
+        .valid_out(sqrt_vout)
     );
 
 endmodule
