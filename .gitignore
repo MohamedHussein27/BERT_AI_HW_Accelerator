@@ -12,4 +12,4 @@ RTL/LayerNorm/vsim.wlf
 RTL/LayerNorm/w*
 RTL/LayerNorm/PE.m*
 RTL/LayerNorm/PE.c*
-
+RTL/LayerNorm/layer*
