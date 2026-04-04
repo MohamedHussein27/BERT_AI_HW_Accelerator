@@ -47,7 +47,7 @@ module tb_processing_element;
 
         apply_and_check(OP_LOAD_WGT,  gamma, 0);
         apply_and_check(OP_LOAD_BIAS, beta,  0);
-        apply_and_check(OP_LOAD_MEAN, 0,     mu); // bcast_data loads the mean!
+        apply_and_check(OP_LOAD_MEAN, 0,     mu); 
 
         // -------------------------
         // PASS_X
@@ -61,24 +61,18 @@ module tb_processing_element;
         // sub = (data_in - mu), mul = sub * sub
         // -------------------------
         repeat (20) begin
-            apply_and_check(OP_VAR_SQR, $random, 0); // bcast is ignored here now
+            apply_and_check(OP_VAR_SQR, $random, 0); 
         end
 
         // -------------------------
-        // NORMALIZE
-        // sub = (data_in - mu), mul = sub * bcast (1/sigma)
+        // NORMALIZE (Now includes Affine!)
+        // 1. sub = (data_in - mu)
+        // 2. mul1 = sub * bcast (1/sigma), quantize
+        // 3. mul2 = mul1 * gamma, quantize
+        // 4. out = mul2 + beta
         // -------------------------
         repeat (20) begin
             apply_and_check(OP_NORMALIZE, $random, $random); 
-        end
-
-        // -------------------------
-        // AFFINE
-        // sub = (data_in - mu) [note: usually FSM bypasses sub here, but based on your RTL it subtracts]
-        // mul = sub * gamma, add = mul + beta
-        // -------------------------
-        repeat (20) begin
-            apply_and_check(OP_AFFINE, $random, 0);
         end
 
         // -------------------------
@@ -88,7 +82,7 @@ module tb_processing_element;
         apply_and_check(OP_VAR_SQR, 32'sh80000000, 0);
 
         apply_and_check(OP_NORMALIZE, 32'sh7FFFFFFF, 32'sh7FFFFFFF);
-        apply_and_check(OP_AFFINE,    32'sh80000000, 32'sh80000000);
+        apply_and_check(OP_NORMALIZE, 32'sh80000000, 32'sh80000000);
 
         $display("All tests passed!");
         $finish;
@@ -144,7 +138,28 @@ module tb_processing_element;
     endtask
 
     // =============================
-    // UPDATED GOLDEN MODEL
+    // HELPER: TB QUANTIZATION FUNCTION
+    // =============================
+    function automatic logic signed [31:0] quantize_tb(
+        input logic signed [63:0] mul_full_in
+    );
+        logic signed [63:0] mul_rounded;
+        
+        // Add half for rounding, then shift right by 26
+        mul_rounded = (mul_full_in + (64'(1) << 25)) >>> 26;
+        
+        // Saturation Clamping
+        if (mul_rounded > 64'sh000000007FFFFFFF) begin
+            return 32'sh7FFFFFFF; 
+        end else if (mul_rounded < -64'sh0000000080000000) begin
+            return -32'sh80000000; 
+        end else begin
+            return mul_rounded[31:0]; 
+        end
+    endfunction
+
+    // =============================
+    // UPDATED GOLDEN MODEL (Matches Cascaded RTL)
     // =============================
     function automatic logic signed [31:0] golden_model(
         pe_op_e opcode,
@@ -156,42 +171,36 @@ module tb_processing_element;
     );
         logic signed [31:0] sub;
         logic signed [63:0] mul_full;
-        logic signed [63:0] mul_rounded;
         logic signed [31:0] mul_out;
 
-        // SUB: Now correctly subtracts the latched 'mu'
+        // 1. SUB: Subtract latched 'mu'
         if (opcode inside {OP_VAR_SQR, OP_NORMALIZE})
             sub = data_in - mu;
         else
             sub = data_in;
 
-        // MUL
-        case (opcode)
-            OP_VAR_SQR:   mul_full = sub * sub;
-            OP_NORMALIZE: mul_full = sub * bcast; // bcast acts as 1/sigma
-            OP_AFFINE:    mul_full = sub * gamma;
-            default:      mul_full = {32'd0, sub};
-        endcase
-
-        // ROUND + SHIFT
-        if (opcode inside {OP_VAR_SQR, OP_NORMALIZE, OP_AFFINE}) begin
-            mul_rounded = (mul_full + (64'(1) << 25)) >>> 26;
-
-            if (mul_rounded > 64'sh000000007FFFFFFF)
-                mul_out = 32'sh7FFFFFFF;
-            else if (mul_rounded < -64'sh0000000080000000)
-                mul_out = -32'sh80000000;
-            else
-                mul_out = mul_rounded[31:0];
-        end else begin
-            mul_out = mul_full[31:0];
-        end
-
-        // ADD
-        if (opcode == OP_AFFINE)
-            return mul_out + beta;
+        // 2. MUL Stage 1
+        if (opcode == OP_VAR_SQR)
+            mul_full = sub * sub;
+        else if (opcode == OP_NORMALIZE)
+            mul_full = sub * bcast; // bcast acts as 1/sigma
         else
-            return mul_out;
+            mul_full = {32'd0, sub};
+
+        // 3. Quantize Stage 1
+        if (opcode inside {OP_VAR_SQR, OP_NORMALIZE})
+            mul_out = quantize_tb(mul_full);
+        else
+            mul_out = mul_full[31:0];
+
+        // 4. MUL Stage 2 & ADD (The Cascade)
+        if (opcode == OP_NORMALIZE) begin
+            mul_full = mul_out * gamma;       // Cascade the first quantized output
+            mul_out  = quantize_tb(mul_full); // Quantize again!
+            return mul_out + beta;            // Apply Affine Bias
+        end else begin
+            return mul_out;                   // Bypass Adder
+        end
     endfunction
 
 endmodule
