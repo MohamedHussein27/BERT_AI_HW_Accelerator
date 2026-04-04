@@ -25,6 +25,7 @@ module layernorm_fsm (
 
     typedef enum logic [2:0] {
         ST_PASS1_MEAN,
+        ST_ACC_FETCH,
         ST_LOAD_MEAN,
         ST_PASS2_VAR,
         ST_TRIG_SQRT,
@@ -38,6 +39,8 @@ module layernorm_fsm (
 
     logic [1:0] load_parameters; // used to load the bais and weight to the PEs
 
+    logic mean_var; // logic to indicate we are going to load mean or target square root
+
     logic [4:0] chunk_cnt; // 0 to 23
     logic [ROW_CNT_WIDTH:0] row_cnt;   // 0 to 511
 
@@ -50,6 +53,7 @@ module layernorm_fsm (
             load_parameters <= '0;
             chunk_cnt <= '0;
             row_cnt   <= '0;
+            mean_var <= '1;
         end else begin
             state <= next_state;
             
@@ -69,6 +73,10 @@ module layernorm_fsm (
                     load_parameters <= 2;
             end
 
+            // if condition for the mean_var logic
+            if (state == ST_PASS2_VAR) mean_var <= 0;
+            else mean_var <= 1;
+
             // restore the load_paramters for the next chunk
             if (state == ST_PASS3_NORM) load_parameters <= 0;
 
@@ -87,11 +95,13 @@ module layernorm_fsm (
         next_state = state; 
         
         case (state)
-            ST_PASS1_MEAN: if (data_valid && chunk_cnt == 5'd23) next_state = ST_LOAD_MEAN;
+            ST_PASS1_MEAN: if (data_valid && chunk_cnt == 5'd23) next_state = ST_ACC_FETCH;
+
+            ST_ACC_FETCH:  if (mean_var) next_state = ST_LOAD_MEAN; else next_state = ST_TRIG_SQRT;
             
             ST_LOAD_MEAN:  next_state = ST_PASS2_VAR; // 1-cycle automatic transition
             
-            ST_PASS2_VAR:  if (data_valid && chunk_cnt == 5'd23) next_state = ST_TRIG_SQRT;
+            ST_PASS2_VAR:  if (data_valid && chunk_cnt == 5'd23) next_state = ST_ACC_FETCH;
             
             ST_TRIG_SQRT:  next_state = ST_CALC_SQRT; // 1-cycle automatic transition
             
@@ -99,7 +109,7 @@ module layernorm_fsm (
             
             ST_PASS3_NORM: if (data_valid && chunk_cnt == 5'd23) next_state = ST_PASS1_MEAN;
             
-            default:       next_state = ST_PASS1_MEAN;
+            default:       next_state = ST_PASS3_NORM;
         endcase
     end
 
@@ -114,12 +124,16 @@ module layernorm_fsm (
         sqrt_valid_in = 1'b0;
         out_valid     = 1'b0;
         done          = 1'b0;
+        sqrt_busy     = '0;
         
         case (state)
             ST_PASS1_MEAN: begin
                 pe_opcode = OP_PASS_X;
                 accum_en  = data_valid;
-                if (data_valid && chunk_cnt == 5'd23) accum_fetch = 1'b1;
+            end
+
+            ST_ACC_FETCH: begin
+                accum_fetch = 1'b1;
             end
 
             ST_LOAD_MEAN: begin
@@ -129,7 +143,6 @@ module layernorm_fsm (
             ST_PASS2_VAR: begin
                 pe_opcode = OP_VAR_SQR;
                 accum_en  = data_valid;
-                if (data_valid && chunk_cnt == 5'd23) accum_fetch = 1'b1;
             end
 
             ST_TRIG_SQRT: begin
