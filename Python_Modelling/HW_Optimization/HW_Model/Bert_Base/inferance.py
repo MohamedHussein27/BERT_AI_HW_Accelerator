@@ -142,7 +142,7 @@ def approx_layernorm(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
     """
     mean   = x.mean(axis=-1, keepdims=True)
     var    = x.var(axis=-1,  keepdims=True)     # unbiased=False  (PyTorch default)
-    var_fx = to_fixed(var, 32, 26)              # Q5.26
+    var_fx = to_fixed(var, 32, 26)              # Q5.26 
 
     s = np.where(var_fx > 1.0, var_fx * 0.5, np.ones_like(var_fx))
     for _ in range(nr):
@@ -462,9 +462,10 @@ def estimate_accuracy(npz_path: str, num_samples: int = 872):
 if __name__ == "__main__":
     w = r"/kaggle/input/datasets/khalednabil676/sst-2-weight-file/weights_with_scales.npz"
     estimate_accuracy(w)
-# ══════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ACTIVATION RECORDER
-# Records the full activation matrices before and after every block
 
 def record_activations(npz_path: str,
                        out_npz:   str = "activations.npz",
@@ -560,10 +561,10 @@ def record_activations(npz_path: str,
 
             # ── INPUT QUANTIZE ────────────────────────────────────────────
             save_f32(f"{p}_input_quant_before", x[0],
-                f"s{si} l{li} | INPUT_QUANT before | LN output entering layer | ({S},{x.shape[-1]})")
+                f"s{si} l{li} | INPUT_QUANT before | float LN output entering quantizer | ({S},{x.shape[-1]})")
             x_fq, x_sc = fake_quant(x)
             save_i8(f"{p}_input_quant_after", x_fq, x_sc,
-                f"s{si} l{li} | INPUT_QUANT after  | x_i8 | ({S},{x_fq.shape[-1]})")
+                f"s{si} l{li} | INPUT_QUANT after  | x_i8 quantized output | ({S},{x_fq.shape[-1]})")
 
             # recover raw INT8 integers for correct GeMM
             x_i8_raw  = to_int8_arr(x_fq,  x_sc)                  # (B,S,H) int8
@@ -573,13 +574,11 @@ def record_activations(npz_path: str,
             Wo_i8_raw = to_int8_arr(a.Wo,  fake_quant(a.Wo)[1])
 
             # ── Q PROJECTION ──────────────────────────────────────────────
-            # INT8 x INT8 -> INT32  (correct hardware accumulator)
             q_acc_i32 = int8_matmul_i32(x_i8_raw[0], Wq_i8_raw)   # (S, H) int32
             save_i32(f"{p}_q_proj_after_gemm", q_acc_i32,
                 f"s{si} l{li} | Q_PROJ after_gemm | INT32 = x_i8 @ Wq.T | ({S},{q_acc_i32.shape[-1]})")
 
             if a.bq is not None:
-                # bias is INT32 — add directly to INT32 accumulator
                 bq_sc      = float(fake_quant(x_fq)[1]) * float(fake_quant(a.Wq)[1])
                 bq_i32     = np.round(a.bq / bq_sc).clip(-2147483648, 2147483647).astype(np.int32)
                 q_bias_i32 = q_acc_i32 + bq_i32
@@ -588,7 +587,6 @@ def record_activations(npz_path: str,
             else:
                 q_bias_i32 = q_acc_i32
 
-            # dequant to float for requantize
             q_sc_combined = float(x_sc) * float(fake_quant(a.Wq)[1])
             q_dequant     = q_bias_i32.astype(np.float64) * q_sc_combined
             q_fq, q_sc    = fake_quant(q_dequant[np.newaxis])
@@ -635,19 +633,16 @@ def record_activations(npz_path: str,
             q_i8_h = to_int8_arr(q_fq, q_sc)[0].reshape(S, H, D).transpose(1, 0, 2)
             k_i8_h = to_int8_arr(k_fq, k_sc)[0].reshape(S, H, D).transpose(1, 0, 2)
             v_i8_h = to_int8_arr(v_fq, v_sc_q)[0].reshape(S, H, D).transpose(1, 0, 2)
-            q_h_b  = q_i8_h[np.newaxis]; k_h_b = k_i8_h[np.newaxis]; v_h_b = v_i8_h[np.newaxis]
 
             # ── QKt GeMM ─────────────────────────────────────────────────
-            # INT8 x INT8 -> INT32 per head
             scores_i32 = np.zeros((H, S, S), np.int32)
             for h in range(H):
                 scores_i32[h] = int8_matmul_i32(q_i8_h[h], k_i8_h[h])
             save_i32(f"{p}_qkt_after_gemm", scores_i32,
                 f"s{si} l{li} | QKT_GEMM after_gemm | INT32 = q_i8 @ k_i8.T (all heads) | ({H},{S},{S})")
-            # dequant -> Q5.26
+            
             qkt_sc    = float(q_sc) * float(k_sc)
             scores_f  = scores_i32.astype(np.float64) * qkt_sc * a.scale
-            # add mask
             if mask is not None:
                 scores_f = scores_f + mask[0]
             mx      = scores_f.max(axis=-1, keepdims=True)
@@ -658,10 +653,11 @@ def record_activations(npz_path: str,
             # ── SOFTMAX ───────────────────────────────────────────────────
             exps      = _pla_exp(shifted)
             probs_raw = exps / (exps.sum(axis=-1, keepdims=True) + 1e-9)
-            save_f32(f"{p}_softmax_after_pla_exp", probs_raw,
-                f"s{si} l{li} | SOFTMAX after_pla_exp | PLA exp output | ({H},{S},{S})")
-            save_f32(f"{p}_softmax_after_norm", probs_raw,
-                f"s{si} l{li} | SOFTMAX after_norm    | normalized probs | ({H},{S},{S})")
+            
+            # TRUE SOFTMAX OUTPUT (before quantizer)
+            save_f32(f"{p}_softmax_after_pla", probs_raw,
+                f"s{si} l{li} | SOFTMAX after_pla   | TRUE SOFTMAX OUTPUT float32 probs | ({H},{S},{S})")
+            
             attn_fq, attn_sc = fake_quant(probs_raw[np.newaxis])
             save_i8(f"{p}_softmax_after_quant", attn_fq, attn_sc,
                 f"s{si} l{li} | SOFTMAX after_quant   | attn_i8 [Q1.15->8] | ({H},{S},{S})")
@@ -706,11 +702,20 @@ def record_activations(npz_path: str,
             wo_res_i8 = to_int8_arr(wo_res_fq, wo_res_sc)
             res1_f = (x_res_i8.astype(np.float64)  * float(x_res_sc) +
                       wo_res_i8.astype(np.float64) * float(wo_res_sc))
-            save_f32(f"{p}_resadd1_ln1_after_add", res1_f[0],
-                f"s{si} l{li} | RESADD1_LN1 after_add  | x_i8*sc + wo_i8*sc (float dequant sum) | ({S},{res1_f.shape[-1]})")
-            ln1_out = approx_layernorm(res1_f, layer.ln1_gamma, layer.ln1_beta, eps=1e-12)
-            save_f32(f"{p}_resadd1_ln1_after_ln", ln1_out[0],
-                f"s{si} l{li} | RESADD1_LN1 after_ln   | LayerNorm output (pre-requantize) | ({S},{ln1_out.shape[-1]})")
+
+            # PDF: residual sum is snapped to Q5.26 before entering LayerNorm
+            res1_q5_26 = to_fixed(res1_f, 32, 26)
+
+            # SAVE TRUE LN1 INPUT — Q5.26 fixed-point (exact value entering LN hardware)
+            save_f32(f"{p}_resadd1_ln1_input", res1_q5_26,
+                f"s{si} l{li} | RESADD1_LN1 input | TRUE LN1 INPUT Q5.26 (step=2^-26) | ({S},{res1_q5_26.shape[-1]})")
+
+            ln1_out = approx_layernorm(res1_q5_26, layer.ln1_gamma, layer.ln1_beta, eps=1e-12)
+            
+            # SAVE TRUE LN1 OUTPUT (before quantizer)
+            save_f32(f"{p}_resadd1_ln1_after_ln", ln1_out,
+                f"s{si} l{li} | RESADD1_LN1 after_ln | TRUE LN1 OUTPUT float32 | ({S},{ln1_out.shape[-1]})")
+            
             x1_fq, x1_sc = fake_quant(ln1_out)
             save_i8(f"{p}_resadd1_ln1_after_quant", x1_fq, x1_sc,
                 f"s{si} l{li} | RESADD1_LN1 after_quant| x_i8 post-LN1 [?->8] | ({S},{x1_fq.shape[-1]})")
@@ -739,13 +744,11 @@ def record_activations(npz_path: str,
             # ── GCU ───────────────────────────────────────────────────────
             gcu_out    = gcu(ffn1_q10_22)
             gcu_q48_16 = to_fixed(gcu_out, 64, 16)
-            save_f32(f"{p}_gcu_after_gcu", gcu_out[0],
-                f"s{si} l{li} | GCU after_gcu    | raw GCU output | ({S},{gcu_out.shape[-1]})")
-            save_f32(f"{p}_gcu_after_q48_16", gcu_q48_16[0],
-                f"s{si} l{li} | GCU after_q48_16 | Q48.16 snap | ({S},{gcu_q48_16.shape[-1]})")
+            save_f32(f"{p}_gcu_after_q48_16", gcu_q48_16[0] if gcu_q48_16.ndim > 2 else gcu_q48_16,
+                f"s{si} l{li} | GCU after_q48_16 | TRUE GCU OUTPUT Q48.16 fixed-point | ({S},{gcu_q48_16.shape[-1]})")
             mid_fq, mid_sc = fake_quant(gcu_q48_16)
             save_i8(f"{p}_gcu_after_quant", mid_fq, mid_sc,
-                f"s{si} l{li} | GCU after_quant  | mid_i8 [Q48.16->8] | ({S},{mid_fq.shape[-1]})")
+                f"s{si} l{li} | GCU after_quant  | mid_i8 [Q48.16->8] quantizer output | ({S},{mid_fq.shape[-1]})")
 
             # ── FFN2 GeMM ─────────────────────────────────────────────────
             mid_i8_raw = to_int8_arr(mid_fq, mid_sc)[0]               # (S,FFN) int8
@@ -775,11 +778,20 @@ def record_activations(npz_path: str,
             ffn2_res_i8 = to_int8_arr(ffn2_res_fq, ffn2_res_sc)
             res2_f = (x1_res_i8.astype(np.float64)   * float(x1_res_sc2) +
                       ffn2_res_i8.astype(np.float64) * float(ffn2_res_sc))
-            save_f32(f"{p}_resadd2_ln2_after_add", res2_f[0],
-                f"s{si} l{li} | RESADD2_LN2 after_add  | x_i8*sc + ffn2_i8*sc | ({S},{res2_f.shape[-1]})")
-            ln2_out = approx_layernorm(res2_f, layer.ln2_gamma, layer.ln2_beta, eps=1e-12)
-            save_f32(f"{p}_resadd2_ln2_after_ln", ln2_out[0],
-                f"s{si} l{li} | RESADD2_LN2 after_ln   | LayerNorm output | ({S},{ln2_out.shape[-1]})")
+
+            # PDF: residual sum is snapped to Q5.26 before entering LayerNorm
+            res2_q5_26 = to_fixed(res2_f, 32, 26)
+
+            # SAVE TRUE LN2 INPUT — Q5.26 fixed-point (exact value entering LN hardware)
+            save_f32(f"{p}_resadd2_ln2_input", res2_q5_26,
+                f"s{si} l{li} | RESADD2_LN2 input | TRUE LN2 INPUT Q5.26 (step=2^-26) | ({S},{res2_q5_26.shape[-1]})")
+
+            ln2_out = approx_layernorm(res2_q5_26, layer.ln2_gamma, layer.ln2_beta, eps=1e-12)
+            
+            # SAVE TRUE LN2 OUTPUT (before quantizer)
+            save_f32(f"{p}_resadd2_ln2_after_ln", ln2_out,
+                f"s{si} l{li} | RESADD2_LN2 after_ln | TRUE LN2 OUTPUT float32 | ({S},{ln2_out.shape[-1]})")
+            
             x2_fq, x2_sc = fake_quant(ln2_out)
             save_i8(f"{p}_resadd2_ln2_after_quant", x2_fq, x2_sc,
                 f"s{si} l{li} | RESADD2_LN2 after_quant| x_i8 post-LN2 = LAYER OUTPUT | ({S},{x2_fq.shape[-1]})")
@@ -811,14 +823,14 @@ def record_activations(npz_path: str,
         f.write("    q_float = q_i8.astype(np.float32) * q_scale\n\n")
         f.write("-" * 78 + "\n")
         prev_s, prev_l = None, None
-        for key, desc in index.items():
+        for key, desc in sorted(index.items()):
             parts  = key.split('_')
             si_tag = parts[0]
-            li_tag = parts[1]
+            li_tag = parts[1] if len(parts) > 1 else 'NA'
             if si_tag != prev_s:
                 f.write(f"\n{'='*78}\n  {si_tag.upper()}\n{'='*78}\n")
                 prev_s = si_tag; prev_l = None
-            if li_tag != prev_l:
+            if li_tag != prev_l and li_tag.startswith('l'):
                 f.write(f"\n  [{li_tag}]\n")
                 prev_l = li_tag
             shape = list(store[key].shape)
@@ -827,6 +839,11 @@ def record_activations(npz_path: str,
             f.write(f"    {desc}\n\n")
 
     print(f"  Index saved  -> {out_index}")
+    print(f"\n  Usage:")
+    print(f"    data    = np.load('{out_npz}')")
+    print(f"    q_i8    = data['s0_l0_q_proj_after_quant']")
+    print(f"    q_scale = data['s0_l0_q_proj_after_quant_scale']")
+    print("="*60)
 
 if __name__ == "__main__":
     w = r"/kaggle/input/datasets/khalednabil676/sst-2-weight-file/weights_with_scales.npz"
