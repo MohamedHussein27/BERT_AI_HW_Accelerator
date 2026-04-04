@@ -34,8 +34,12 @@ module layernorm_fsm (
 
     state_t state, next_state;
 
+    localparam ROW_CNT_WIDTH = $clog2(512);
+
+    logic [1:0] load_parameters; // used to load the bais and weight to the PEs
+
     logic [4:0] chunk_cnt; // 0 to 23
-    logic [8:0] row_cnt;   // 0 to 511
+    logic [ROW_CNT_WIDTH:0] row_cnt;   // 0 to 511
 
     // ========================================================
     // Block 1: Sequential Logic (State Memory & Counters)
@@ -43,6 +47,7 @@ module layernorm_fsm (
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state     <= ST_PASS1_MEAN;
+            load_parameters <= '0;
             chunk_cnt <= '0;
             row_cnt   <= '0;
         end else begin
@@ -55,6 +60,17 @@ module layernorm_fsm (
                 else                    
                     chunk_cnt <= chunk_cnt + 1;
             end
+
+            // if condition for loading parameters while calculating the square root
+            if (state == ST_CALC_SQRT) begin
+                if (load_parameters == 0)
+                    load_parameters <= 1;
+                else if (load_parameters == 1)
+                    load_parameters <= 2;
+            end
+
+            // restore the load_paramters for the next chunk
+            if (state == ST_PASS3_NORM) load_parameters <= 0;
 
             // Increment row counter at the very end of Pass 3
             if (state == ST_PASS3_NORM && data_valid && chunk_cnt == 5'd23) begin
@@ -120,7 +136,14 @@ module layernorm_fsm (
                 sqrt_valid_in = 1'b1; 
             end
 
-            ST_CALC_SQRT: begin
+            ST_CALC_SQRT: begin // takes time
+                if (load_parameters == 0)
+                    pe_opcode = OP_LOAD_WGT;
+                else if (load_parameters == 1) 
+                    pe_opcode = OP_LOAD_BIAS;
+                else
+                    pe_opcode = OP_PASS_X;
+                
                 // All outputs remain at default 0 while waiting
                 sqrt_busy = 1'b1;
             end
