@@ -1,18 +1,17 @@
 module accumulator #(
-    parameter DATAWIDTH = 32, // input Q5.26
-    parameter DATAWIDTH_OUTPUT = 36 // output Q9.26
+    parameter DATAWIDTH_IN = 42,    
+    parameter DATAWIDTH_OUTPUT = 47  
 ) (
     input logic clk,
     input logic rst_n,
-    input logic valid_in, // indicates if we are going to accumlate or no.
-    input logic fetch,    // indicates if we want to read the accumlated result or no (reg is cleared after it).
-    input logic signed [DATAWIDTH-1:0] data_in,
-
+    input logic valid_in, 
+    input logic fetch,    
+    input logic signed [DATAWIDTH_IN-1:0] data_in,
     output logic signed [DATAWIDTH_OUTPUT-1:0] data_out  
-
 );
 
     logic signed [DATAWIDTH_OUTPUT-1:0] acc_reg;
+    
     always_ff @(posedge clk or negedge rst_n) begin 
         if (!rst_n) begin
             data_out <= '0;
@@ -20,10 +19,8 @@ module accumulator #(
         end 
         else begin
             if (fetch && valid_in) begin
-                // Send the completed sum to output
-                data_out <= acc_reg; 
-                // Start the NEW sum immediately with the current data
-                acc_reg  <= $signed(data_in); 
+                data_out <= acc_reg + $signed(data_in);
+                acc_reg  <= '0; 
             end
             else if (fetch) begin
                 data_out <= acc_reg;

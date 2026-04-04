@@ -2,22 +2,18 @@
 
 module adder_tree #(
     parameter NUM_INPUTS = 32,
-    parameter DATA_WIDTH = 32
+    parameter DATA_WIDTH_IN = 37,
+    parameter DATA_WIDTH_OUT = 42
 )(
-    // 32 parallel inputs coming directly from the Processing Elements
-    input  logic signed [DATA_WIDTH-1:0] pe_data_in [0:NUM_INPUTS-1],
-    
-    // The single squashed output going to the Accumulator
-    output logic signed [DATA_WIDTH-1:0] tree_sum_out
+    input  logic signed [DATA_WIDTH_IN-1:0]  pe_data_in [0:NUM_INPUTS-1],
+    output logic signed [DATA_WIDTH_OUT-1:0] tree_sum_out
 );
 
-    // --------------------------------------------------------
-    // Internal Wires for the Reduction Stages
-    // --------------------------------------------------------
-    logic signed [DATA_WIDTH-1:0] stage1 [0:15]; // 16 sums
-    logic signed [DATA_WIDTH-1:0] stage2 [0:7];  // 8 sums
-    logic signed [DATA_WIDTH-1:0] stage3 [0:3];  // 4 sums
-    logic signed [DATA_WIDTH-1:0] stage4 [0:1];  // 2 sums
+    logic signed [DATA_WIDTH_IN:0]   stage1 [0:15]; // 38 bits
+    logic signed [DATA_WIDTH_IN+1:0] stage2 [0:7];  // 39 bits
+    logic signed [DATA_WIDTH_IN+2:0] stage3 [0:3];  // 40 bits
+    logic signed [DATA_WIDTH_IN+3:0] stage4 [0:1];  // 41 bits
+
 
     always_comb begin
         // --------------------------------------------------------
