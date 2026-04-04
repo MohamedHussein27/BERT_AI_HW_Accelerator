@@ -60,8 +60,7 @@ module inv_sqrt #(
         case (cs)
             IDLE: begin
                 if (valid_in) begin
-                    if (data_in <= 0) ns = IDLE;
-                    else              ns = LOD_NORM;
+                    ns = LOD_NORM;
                 end
             end
             LOD_NORM: begin
