@@ -1,5 +1,25 @@
 `timescale 1ns / 1ps
 
+// signals to registerd by one cycle in the top module
+// sa_valid_in,
+// sa_load_weight,
+// sa_first_iter,
+// sa_last_tile,
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 module transformer_master_ctrl (
     input  logic clk,
     input  logic rst_n,
@@ -17,6 +37,7 @@ module transformer_master_ctrl (
     output logic       fetch_double_buf,
     input  logic       fetch_done,
 
+    output logic [3:0] write_buffer_sel,
     output logic       write_start,
     input  logic       write_done,
 
@@ -27,7 +48,7 @@ module transformer_master_ctrl (
     output logic       sa_load_weight,
     output logic       sa_first_iter,
     output logic       sa_last_tile,
-    input  logic       fetch_done,
+    input  logic       sa_done,
 
     // ========================================================
     // 3. Softmax Interface
@@ -52,7 +73,7 @@ module transformer_master_ctrl (
         ST_IDLE          = 4'd0,
         
         // --- Multi-Head Attention (MHA) ---
-        FILLING_Q_W      = 4'd1, // Q, K, V Generation (Systolic Array)
+        FETCHING_W      = 4'd1, // Q, K, V Generation (Systolic Array)
         ST_MHA_SCORE     = 4'd2, // Q x K^T (Systolic Array)
         ST_MHA_SOFTMAX   = 4'd3, // Softmax Streaming
         ST_MHA_CONTEXT   = 4'd4, // Score x V (Systolic Array)
@@ -69,9 +90,13 @@ module transformer_master_ctrl (
 
     master_state_e state, next_state;
     logic db_control;  // to control when to fetch from the double buffering addresses
-    logic first_sa_time; // flag to raise the first iteration output for the sa in the first time only
+    //logic first_sa_time; // flag to raise the first iteration output for the sa in the first time only
 
     logic [4:0] sa_first_iter_counter; 
+    logic [4:0] done_counter;
+    logic [1:0] Q_K_V_sel;  // this signal tells whethere we are in Q or K or V
+    // 0 --> Q, 1 --> K, 2 --> V
+
 
     // ========================================================
     // Block 1: Sequential State Memory
@@ -81,19 +106,36 @@ module transformer_master_ctrl (
             state <= ST_IDLE;
             db_control <= 0;
             sa_first_iter_counter <= '0;
+            done_counter <= '0;
+            Q_K_V_sel <= '0;
         end
         else begin        
             state <= next_state;
         end
 
-        if ((state == FILLING_Q_I || state == FILLING_K_I || state == FILLING_V_I) 
+        if ((state == FETCHING_I || state == FILLING_K_I || state == FILLING_V_I) 
             && 
-            (next_state == FILLING_Q_W || next_state == FILLING_K_W || next_state == FILLING_V_W)) db_control <= 1;
+            (next_state == FETCHING_W || next_state == FILLING_K_W || next_state == FILLING_V_W)) db_control <= 1;
         else                                                                                       db_control <= 0;
 
         //*********************************** counters *********************************\\
-        if ((next_state == FILLING_Q_W || state == FILLING_K_W || state == FILLING_V_W)) begin
-            
+        // this counter is used to count when the code is back to the first tile in the input 
+        // to generate first_tile signal for SA.
+        if (((next_state == FETCHING_W && state == FETCHING_I) || (next_state == FILLING_K_W && state == FILLING_K_I)
+            || (next_state == FILLING_V_W && state == FILLING_V_I))) begin
+            if (sa_first_iter_counter <= 23)
+                sa_first_iter_counter <= sa_first_iter_counter + 1;
+            else sa_first_iter_counter <= '0;
+        end
+        // this counter is used to count the number of dones 
+        // if its 24 then we know that a matrix is done and we should change direction to calculate the next matrix
+        if (sa_done) begin 
+            done_counter <= done_counter + 1;
+        end
+
+        if (done_counter == 24)begin
+            done_counter <= 0;
+            Q_K_V_sel <= Q_K_V_sel + 1;
         end
 
     end
@@ -105,17 +147,14 @@ module transformer_master_ctrl (
         next_state = state; // Default hold
         
         case (state)
-            ST_IDLE:         if (start_inference) next_state = FILLING_Q_W;
+            ST_IDLE:         if (start_inference) next_state = FETCHING_W;
             
             // start filling buffers
-            FILLING_Q_W:     if (fetch_done)         next_state = FILLING_Q_I;
-            FILLING_Q_I:     if (fetch_done)         next_state = FILLING_K_W;
-            FILLING_K_W:     if (fetch_done)         next_state = FILLING_K_I;
-            FILLING_K_I:     if (fetch_done)         next_state = FILLING_V_W;
-            FILLING_V_W:     if (fetch_done)         next_state = FILLING_V_I;
-            FILLING_V_I:     if (fetch_done)         next_state = FILLING_K;
-
-
+            FETCHING_W:     if (fetch_done)             next_state = FETCHING_I;
+            FETCHING_I:     if (fetch_done && !sa_done)    next_state = FILLING_W;
+                            else                        next_state = WRITING_Q_K_V;
+            WRITING_Q_K_V:  if (write_done && Q_K_V_sel == 3) next_state = // QKT
+                            else if (write_done)              next_state = FETCHING_W;
 
             ST_MHA_SCORE:    if (fetch_done)         next_state = ST_MHA_SOFTMAX;
             
@@ -159,7 +198,7 @@ module transformer_master_ctrl (
         sa_load_weight   = 1'b0;
         sa_first_iter    = 1'b0;
         sa_last_tile     = 1'b0;
-        first_sa_time    = 1'b1;
+        //first_sa_time    = 1'b1;
 
 
         softmax_start    = 1'b0;
@@ -168,7 +207,7 @@ module transformer_master_ctrl (
             // ----------------------------------------------------
             // MULTI-HEAD ATTENTION
             // ----------------------------------------------------
-            FILLING_Q_W: begin
+            FETCHING_W: begin
                 // Example: Fetch Weights 'W' 
                 fetch_buffer_sel = 4'b0000;  
                 fetch_tiles_ctrl = 2'b01;  // fetch 32
@@ -178,65 +217,32 @@ module transformer_master_ctrl (
                 sa_load_weight = 1'b1;
             end
 
-            FILLING_Q_I: begin
+            FETCHING_I: begin
                 // Example: Fetch Weights 'I'
                 fetch_buffer_sel = 4'b0010; 
                 fetch_tiles_ctrl = 2'b00; // fetch 512
                 fetch_double_buf = db_control;
                 
                 // Wake up Systolic Array
-                if (first_sa_time) begin
+
+                if (sa_first_iter_counter == 0) begin
                     sa_first_iter = 1'b1;  // we need it high only for the first iteration (as we dont have any partial sums)
-                    first_sa_time = 1'b0;
                 end
+                sa_valid_in = 1'b1;
             end
-
-            FILLING_K_W: begin
-                // Example: Fetch Weights 'W' 
-                fetch_buffer_sel = 4'b0000;  
-                fetch_tiles_ctrl = 2'b00; // 512 fetches [cite: 61]
-                fetch_double_buf = db_control;
-
-                // Wake up Systolic Array
-                sa_load_weight = 1'b1;
-                sa_valid_in   = 1'b1;
-                sa_first_iter = 1'b1;
-            end
-
-            FILLING_K_I: begin
-                // Example: Fetch Weights 'W' 
-                fetch_buffer_sel = 4'b0000;  
-                fetch_tiles_ctrl = 2'b00; // 512 fetches [cite: 61]
-                fetch_double_buf = db_control;
-
-                // Wake up Systolic Array
-                sa_load_weight = 1'b1;
-                sa_valid_in   = 1'b1;
-                sa_first_iter = 1'b1;
-            end
-
-            FILLING_V_W: begin
-                // Example: Fetch Weights 'W' 
-                fetch_buffer_sel = 4'b0000;  
-                fetch_tiles_ctrl = 2'b00; // 512 fetches [cite: 61]
-                fetch_double_buf = db_control;
-
-                // Wake up Systolic Array
-                sa_load_weight = 1'b1;
-                sa_valid_in   = 1'b1;
-                sa_first_iter = 1'b1;
-            end
-
-            FILLING_V_I: begin
-                // Example: Fetch Weights 'W' 
-                fetch_buffer_sel = 4'b0000;  
-                fetch_tiles_ctrl = 2'b00; // 512 fetches [cite: 61]
-                fetch_double_buf = db_control;
-
-                // Wake up Systolic Array
-                sa_load_weight = 1'b1;
-                sa_valid_in   = 1'b1;
-                sa_first_iter = 1'b1;
+            WRITING_Q_K_V: begin
+                if (Q_K_V_sel == 0) begin
+                    write_buffer_sel = 4'b0011;
+                    write_start = 1;
+                end
+                else if (Q_K_V_sel == 1) begin
+                    write_buffer_sel = 4'b0100;
+                    write_start = 1;
+                end
+                else if (Q_K_V_sel == 2) begin
+                    write_buffer_sel = 4'b0101;
+                    write_start = 1;
+                end
             end
 
             ST_MHA_SOFTMAX: begin
