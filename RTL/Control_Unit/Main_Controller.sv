@@ -35,11 +35,18 @@ module transformer_master_ctrl (
     output logic [3:0] fetch_buffer_sel, // Determines which SRAM to read
     output logic [1:0] fetch_tiles_ctrl, // 512, 32, or 24 tile configuration
     output logic       fetch_double_buf,
+    output logic       fetch_reset_address_counter,
+    output logic       hold_addr_ptr,
     input  logic       fetch_done,
+    input  logic       fetch_busy,
 
     output logic [3:0] write_buffer_sel,
     output logic       write_start,
+    output logic       write_double_buf,
+    output logic       write_reset_address_counter
     input  logic       write_done,
+    input  logic       write_tile_done,
+    input  logic       write_busy,
 
     // ========================================================
     // 2. Systolic Array Interface (Shared for MHA & FFN)
@@ -49,6 +56,7 @@ module transformer_master_ctrl (
     output logic       sa_first_iter,
     output logic       sa_last_tile,
     input  logic       sa_done,
+    input  logic       sa_valid_out,
 
     // ========================================================
     // 3. Softmax Interface
@@ -92,10 +100,15 @@ module transformer_master_ctrl (
     logic db_control;  // to control when to fetch from the double buffering addresses
     //logic first_sa_time; // flag to raise the first iteration output for the sa in the first time only
 
+    logic write_pulse_flag; // flag to make the write to be high only for one cycle
+
     logic [4:0] sa_first_iter_counter; 
     logic [4:0] done_counter;
     logic [1:0] Q_K_V_sel;  // this signal tells whethere we are in Q or K or V
     // 0 --> Q, 1 --> K, 2 --> V
+    logic       Q_Kt_sel; // this signal like the above makes us write in the Q_Kt buffer
+    logic       repeat_matrix; // this signal is for the cpu to fetch the matrix tiles again for sa
+
 
 
     // ========================================================
@@ -108,21 +121,24 @@ module transformer_master_ctrl (
             sa_first_iter_counter <= '0;
             done_counter <= '0;
             Q_K_V_sel <= '0;
+
+            // falgs
+            write_pulse_flag <= 1;
         end
         else begin        
             state <= next_state;
         end
 
-        if ((state == FETCHING_I || state == FILLING_K_I || state == FILLING_V_I) 
+        if ((state == FETCHING_I || state == FETCHING_K_I || state == FETCHING_V_I) 
             && 
-            (next_state == FETCHING_W || next_state == FILLING_K_W || next_state == FILLING_V_W)) db_control <= 1;
+            (next_state == FETCHING_W || next_state == FETCHING_K_W || next_state == FETCHING_V_W)) db_control <= 1;
         else                                                                                       db_control <= 0;
 
         //*********************************** counters *********************************\\
         // this counter is used to count when the code is back to the first tile in the input 
         // to generate first_tile signal for SA.
-        if (((next_state == FETCHING_W && state == FETCHING_I) || (next_state == FILLING_K_W && state == FILLING_K_I)
-            || (next_state == FILLING_V_W && state == FILLING_V_I))) begin
+        if (((next_state == FETCHING_W && state == FETCHING_I) || (next_state == FETCHING_K_W && state == FETCHING_K_I)
+            || (next_state == FETCHING_V_W && state == FETCHING_V_I))) begin
             if (sa_first_iter_counter <= 23)
                 sa_first_iter_counter <= sa_first_iter_counter + 1;
             else sa_first_iter_counter <= '0;
@@ -133,9 +149,35 @@ module transformer_master_ctrl (
             done_counter <= done_counter + 1;
         end
 
-        if (done_counter == 24)begin
+        // condition for dividing the heads and write the Q_Kt buffer 12 times (512 x 64) x (64 x 512)
+        if (done_counter == 2 && (state == FETCHING_Kt || state == FETCHING_Q || state == WRITING_Q_Kt)) 
+            sa_last_tile <= 1;
+
+        // to make the sa outputs its valid outputs
+        else if (done_counter == 23) sa_last_tile <= 1; 
+
+        // transition to write if we are in the last tile
+        else if (done_counter == 24)begin
             done_counter <= 0;
-            Q_K_V_sel <= Q_K_V_sel + 1;
+            if (state == FETCHING_W || state == FETCHING_I || state == WRITING_Q_K_V) begin
+                if (Q_K_V_sel == 3) Q_K_V_sel <= 0;
+                else                Q_K_V_sel <= Q_K_V_sel + 1;
+            end
+            if (state == FETCHING_Kt || state == FETCHING_Q || state == WRITING_Q_Kt) begin
+                /*if (Q_Kt_sel == 1) Q_Kt_sel <= 0;
+                else                Q_Kt_sel <= Q_Kt_sel + 1;*/
+                Q_Kt_sel <= ~Q_Kt_sel;
+            end
+            sa_last_tile <= 0;
+        end
+
+        //**************************************** flags ************************************\\
+        if (sa_valid_out && write_pulse_flag) begin
+            write_start <= 1;
+            write_pulse_flag <= 0;
+        end
+        else begin
+            write_start <= 0;
         end
 
     end
@@ -147,14 +189,48 @@ module transformer_master_ctrl (
         next_state = state; // Default hold
         
         case (state)
-            ST_IDLE:         if (start_inference) next_state = FETCHING_W;
+            ST_IDLE:         if (start_inference) next_state = FETCHING_W
             
-            // start filling buffers
+            // First Stage
             FETCHING_W:     if (fetch_done)             next_state = FETCHING_I;
-            FETCHING_I:     if (fetch_done && !sa_done)    next_state = FILLING_W;
-                            else                        next_state = WRITING_Q_K_V;
-            WRITING_Q_K_V:  if (write_done && Q_K_V_sel == 3) next_state = // QKT
+            FETCHING_I: 
+                        begin   
+                            if (sa_done) begin
+                                if (!sa_last_tile)  
+                                    next_state = FETCHING_W;
+                                else   
+                                    next_state = WRITING_Q_K_V;
+                            end
+                        end 
+            WRITING_Q_K_V: 
+                        begin  
+                            if (write_done && Q_K_V_sel == 3) next_state = FETCHING_Kt;
                             else if (write_done)              next_state = FETCHING_W;
+                        end
+
+
+            // second stage
+            FETCHING_Kt:    if (fetch_done)             next_state = FETCHING_Q; // Kt is treated as weights
+            FETCHING_Q: begin   
+                            if (sa_done) begin
+                                if (!sa_last_tile)  
+                                    next_state = FETCHING_Kt;
+                                else   
+                                    next_state = WRITING_Q_Kt;
+                            end
+                        end
+            
+            WRITING_Q_Kt:
+                        begin  
+                            if (write_done && Q_Kt_sel) next_state = ??;
+                            else if (write_done)              next_state = FETCHING_Kt;
+                        end
+
+            // third stage: softmax
+
+
+            // fourth stage: 
+
 
             ST_MHA_SCORE:    if (fetch_done)         next_state = ST_MHA_SOFTMAX;
             
@@ -230,20 +306,24 @@ module transformer_master_ctrl (
                 end
                 sa_valid_in = 1'b1;
             end
+
             WRITING_Q_K_V: begin
+
                 if (Q_K_V_sel == 0) begin
                     write_buffer_sel = 4'b0011;
-                    write_start = 1;
                 end
                 else if (Q_K_V_sel == 1) begin
                     write_buffer_sel = 4'b0100;
-                    write_start = 1;
                 end
                 else if (Q_K_V_sel == 2) begin
                     write_buffer_sel = 4'b0101;
-                    write_start = 1;
                 end
             end
+
+            FETCHING_Kt: begin
+
+
+
 
             ST_MHA_SOFTMAX: begin
                 // Fetch Scores, stream directly to bert_softmax.sv [cite: 131-133]
