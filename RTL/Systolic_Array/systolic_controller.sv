@@ -19,6 +19,7 @@ module systolic_controller #(
     output logic [$clog2(N_SIZE)-1:0]   wt_row_sel,
 
     // Status signals
+    output logic valid_out,
     output logic ready,
     output logic busy,
     output logic done
@@ -154,4 +155,5 @@ module systolic_controller #(
     end
 
     assign wt_row_sel = wt_load_cnt;
+    assign valid_out = (last_tile)? we : 0;
 endmodule

@@ -20,13 +20,13 @@ module systolic_top #(
     input  logic load_weight,
     input  logic last_tile,
     input  logic first_iteration, 
-    input  logic [ADDR_WIDTH-1:0] rd_addr_outbuffer,
     // Status signals
     output logic ready,
     output logic busy,
     output logic done,
+    output logic valid_out,
 
-    output logic [(DATAWIDTH_output*N_SIZE)-1:0] out_data_outbuffer // this is the output of the systolic buffer
+    output logic signed [(DATAWIDTH_output*N_SIZE)-1:0] data_out // this is the output of the systolic buffer
 );
 // internal wires 
     logic sys_wt_en;
@@ -45,11 +45,8 @@ module systolic_top #(
     
     logic signed [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_output;
     logic signed [(DATAWIDTH_output*N_SIZE)-1:0] interbuffer_intput;
-    logic signed [(DATAWIDTH_output*N_SIZE)-1:0] outbuffer_intput;
     logic signed [DATAWIDTH_output-1:0] out_C_wire [N_SIZE-1:0];
 
-
-    assign we_outbuffer_wire = (last_tile) ? we : 0; 
 
     genvar i, j, k, p, f;
     generate
@@ -66,7 +63,7 @@ module systolic_top #(
         end      
 
         for (f = 0; f < N_SIZE; f = f + 1 ) begin
-            assign outbuffer_intput[f*DATAWIDTH_output +: DATAWIDTH_output] = deskew_out_wire[f];
+            assign data_out[f*DATAWIDTH_output +: DATAWIDTH_output] = deskew_out_wire[f];
         end 
 
         for (p = 0; p < N_SIZE; p = p + 1 ) begin
@@ -92,6 +89,7 @@ module systolic_top #(
         .rd_addr(rd_addr),
         .wr_addr(wr_addr),
         .wt_row_sel(wt_row_sel),
+        .valid_out(valid_out),
         .ready(ready),
         .busy(busy),
         .done(done)
@@ -149,19 +147,5 @@ module systolic_top #(
         .wr_addr (wr_addr),
         .in_data (interbuffer_intput), 
         .out_data(interbuffer_output)
-    );
-    // output buffer
-    systolic_internal_buffer #(
-        .DATAWIDTH_output(DATAWIDTH_output),
-        .N_SIZE(N_SIZE),
-        .DEPTH(num_of_raws),
-        .ADDR_WIDTH(ADDR_WIDTH)
-    ) out_buffer (
-        .clk     (clk),
-        .we      (we_outbuffer_wire),
-        .rd_addr (rd_addr_outbuffer),
-        .wr_addr (wr_addr),
-        .in_data (outbuffer_intput),
-        .out_data(out_data_outbuffer)
     );
 endmodule

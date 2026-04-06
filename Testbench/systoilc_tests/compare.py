@@ -44,4 +44,4 @@ def compare_files(golden_file, hardware_file):
         print(f"\nFAILURE: Found {mismatches} mismatches out of {total_elements} elements.")
 
 # Run the comparison
-compare_files("golden_model_result.txt", "deskewed_output.txt")
+compare_files("golden_model_result.txt", "output_buffer.txt")
