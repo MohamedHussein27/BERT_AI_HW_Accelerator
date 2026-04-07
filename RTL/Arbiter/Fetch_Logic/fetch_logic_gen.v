@@ -17,13 +17,15 @@ module fetch_logic_gen #(
     input  wire [1:0]                   Tiles_Control,         // 2'b01 = weights (32 tiles), 2'b00 = inputs (512 tiles), 2'b10 = LayerNorm
     input  wire                         Double_buffering,      // control signal to make us read from the double buffering addresses
     input  wire                         hold_addr_ptr,         // control signal to make the address stuck to the same row
-    
+    input  wire                         stop_counting,         // control signal to stop counting as we need to wait 32 clocks till we serialize data to softmax
+
     // BRAM Interface
     output reg  [ADDR_WIDTH-1:0]        bram_addr,             // Address sent to the BRAM
     output reg                          bram_en,               // Enable signal for the BRAM read port
 
     // Status Signal
-    output reg                          fetch_done,            // Pulse high for one cycle when done
+    output reg                          fetch_in_done,            // Pulse high for one cycle when done fetching input
+    output reg                          fetch_wt_done,          // Pulse high for one cycle when done fetching weight
     output reg                          busy                   // busy signal to indicate we are still fetching
 );
 
@@ -135,7 +137,8 @@ module fetch_logic_gen #(
         begin
             next_state = current_state;
             bram_en    = 1'b0;
-            fetch_done = 1'b0;
+            fetch_in_done = 1'b0;
+            fetch_wt_done = 1'b0;
             busy       = 1'b0;
 
             // Dynamically select the active pointer based on Tiles_Control
@@ -169,10 +172,16 @@ module fetch_logic_gen #(
                         begin
                             next_state = DONE;
                         end
+                    // for handling softmax fifo
+                    else if (stop_counting)
+                        next_state = IDLE;
                 end
                 
                 DONE: begin
-                    fetch_done = 1'b1;
+                    if (Tiles_Control == 2'b01)
+                        fetch_wt_done = 1'b1;
+                    else
+                        fetch_in_done = 1'b1;
                     next_state = IDLE;
                 end
                 
@@ -245,7 +254,8 @@ module fetch_logic_gen #(
             case (Tiles_Control)
                 2'b00: NUM_FETCHES_PER_TILE = 14'd512;
                 2'b01: NUM_FETCHES_PER_TILE = 14'd32;
-                2'b10: NUM_FETCHES_PER_TILE = 14'd24; // used with add & norm buffers, we need to wait a certain time between passign rows
+                2'b10: NUM_FETCHES_PER_TILE = 14'd24; // used with layernorm buffers, we need to wait a certain time between passign rows
+                2'b11: NUM_FETCHES_PER_TILE = 14'd16; // used in softmax as our row here is 512 element so we need two fetches
                 default: NUM_FETCHES_PER_TILE = 14'd512;
             endcase
         end

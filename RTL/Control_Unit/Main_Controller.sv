@@ -35,9 +35,12 @@ module transformer_master_ctrl (
     output logic [3:0] fetch_buffer_sel, // Determines which SRAM to read
     output logic [1:0] fetch_tiles_ctrl, // 512, 32, or 24 tile configuration
     output logic       fetch_double_buf,
-    output logic       fetch_reset_address_counter,
-    output logic       hold_addr_ptr,
-    input  logic       fetch_done,
+    output logic       fetch_hold_addr_ptr,  // for layernorm to fetch the same address 
+    output logic       fetch_reset_in_addr_counter,
+    output logic       fetch_reset_wt_addr_counter,
+    output logic       fetch_stop_counting,
+    input  logic       fetch_in_done,
+    input  logic       fetch_wt_done,
     input  logic       fetch_busy,
 
     output logic [3:0] write_buffer_sel,
@@ -97,17 +100,23 @@ module transformer_master_ctrl (
     } master_state_e;
 
     master_state_e state, next_state;
+    
+    // counters
+    logic [4:0] sa_first_iter_counter; 
+    logic [4:0] done_counter;
+    logic [1:0] Q_K_V_sel;  // this signal tells whethere we are in Q or K or V
+    // 0 --> Q, 1 --> K, 2 --> 
+    logic [4:0] done_in_tile_counter; // to count how many input tiles we fetched
+    logic [4:0] done_wt_tile_counter; // to count how many weight tiles we fetched
+    logic [5:0] piso_counter;         // counter to wait until the serialized inputs go to the softmax to fetch a new 32 elements
+
+    // flags
+    logic       Q_Kt_sel; // this signal like the above makes us write in the Q_Kt buffer
+    logic       repeat_matrix; // this signal is for the cpu to fetch the matrix tiles again for sa
     logic db_control;  // to control when to fetch from the double buffering addresses
     //logic first_sa_time; // flag to raise the first iteration output for the sa in the first time only
 
     logic write_pulse_flag; // flag to make the write to be high only for one cycle
-
-    logic [4:0] sa_first_iter_counter; 
-    logic [4:0] done_counter;
-    logic [1:0] Q_K_V_sel;  // this signal tells whethere we are in Q or K or V
-    // 0 --> Q, 1 --> K, 2 --> V
-    logic       Q_Kt_sel; // this signal like the above makes us write in the Q_Kt buffer
-    logic       repeat_matrix; // this signal is for the cpu to fetch the matrix tiles again for sa
 
 
 
@@ -137,8 +146,8 @@ module transformer_master_ctrl (
         //*********************************** counters *********************************\\
         // this counter is used to count when the code is back to the first tile in the input 
         // to generate first_tile signal for SA.
-        if (((next_state == FETCHING_W && state == FETCHING_I) || (next_state == FETCHING_K_W && state == FETCHING_K_I)
-            || (next_state == FETCHING_V_W && state == FETCHING_V_I))) begin
+        if (((next_state == FETCHING_W && state == FETCHING_I) || (next_state == FETCHING_Kt && state == FETCHING_Q)
+            /*|| (next_state == FETCHING_V_W && state == FETCHING_V_I)*/)) begin
             if (sa_first_iter_counter <= 23)
                 sa_first_iter_counter <= sa_first_iter_counter + 1;
             else sa_first_iter_counter <= '0;
@@ -163,13 +172,42 @@ module transformer_master_ctrl (
                 if (Q_K_V_sel == 3) Q_K_V_sel <= 0;
                 else                Q_K_V_sel <= Q_K_V_sel + 1;
             end
-            if (state == FETCHING_Kt || state == FETCHING_Q || state == WRITING_Q_Kt) begin
+            else if (state == FETCHING_Kt || state == FETCHING_Q || state == WRITING_Q_Kt) begin
                 /*if (Q_Kt_sel == 1) Q_Kt_sel <= 0;
                 else                Q_Kt_sel <= Q_Kt_sel + 1;*/
                 Q_Kt_sel <= ~Q_Kt_sel;
             end
             sa_last_tile <= 0;
         end
+
+
+        // multiplying (512 x 64) x (64 x 512) conditions
+        if (fetch_in_done) begin
+            if (done_in_tile_counter == 23)
+                done_in_tile_counter <= '0;
+            // condition for multiplying 512 x 64 (inputs) so we need two tiles and then fetch them again
+            else if ((state == FETCHING_Kt || state == FETCHING_Q || state == WRITING_Q_Kt) && (done_in_tile_counter == 2)) begin
+                done_in_tile_counter <= '0;
+                fetch_reset_in_addr_counter <= 1'
+            end
+            else
+                done_in_tile_counter <= done_in_tile_counter + 1;
+        end
+        if (fetch_wt_done) begin
+            if (done_wt_tile_counter == 23)
+                done_wt_tile_counter <= '0;
+            else
+                done_wt_tile_counter <= done_wt_tile_counter + 1;
+        end
+
+        // inceremnt piso counter to go back to fetching Q_Kt state
+        if (state == WAIT_PISO) 
+            piso_counter <= piso_counter + 1; // can be handeled by busy signal from piso module
+        else
+            piso_counter <= '0;
+            
+
+        
 
         //**************************************** flags ************************************\\
         if (sa_valid_out && write_pulse_flag) begin
@@ -189,9 +227,9 @@ module transformer_master_ctrl (
         next_state = state; // Default hold
         
         case (state)
-            ST_IDLE:         if (start_inference) next_state = FETCHING_W
+            ST_IDLE:        if (start_inference) next_state = FETCHING_W;
             
-            // First Stage
+            // First Stage: filling Q K V matrices to be used 
             FETCHING_W:     if (fetch_done)             next_state = FETCHING_I;
             FETCHING_I: 
                         begin   
@@ -209,7 +247,7 @@ module transformer_master_ctrl (
                         end
 
 
-            // second stage
+            // second stage: filling Q Kt matrix to be used in softmax
             FETCHING_Kt:    if (fetch_done)             next_state = FETCHING_Q; // Kt is treated as weights
             FETCHING_Q: begin   
                             if (sa_done) begin
@@ -222,14 +260,46 @@ module transformer_master_ctrl (
             
             WRITING_Q_Kt:
                         begin  
-                            if (write_done && Q_Kt_sel) next_state = ??;
+                            if (write_done && Q_Kt_sel) next_state = FETCHING_Q_Kt;
                             else if (write_done)              next_state = FETCHING_Kt;
                         end
 
             // third stage: softmax
+            FETCHING_Q_Kt: if (fetch_in_done) next_state = WAIT_SIPO;
+                           else next_state = WAIT_PISO; // wait the 32 clocks as the 32 elements being serialized to the softmax
+            
+            WAIT_PISO: 
+                        begin
+                            if (piso_counter == 16) next_state = FETCHING_Q_Kt;
+                            else                    next_state = WAIT_PISO;
+                        end
+
+            WAIT_SIPO:
+
+            FETCHING_SM:
+
+            FETCHING_V:
+
+            WRITING_SV:
 
 
-            // fourth stage: 
+            // fourth stage: writing the multi-head attention matrix
+            FETCHING_SV:
+
+            //FETCHING_W:
+
+            WRITING_H:
+
+            // fifth stage: layernormalization
+            RES_ADD_H_I:
+
+            WRITING_LN:
+
+            FETCHING_LN:
+
+            FETCHING_LN_W:
+
+            WRITING_FFN_I:
 
 
             ST_MHA_SCORE:    if (fetch_done)         next_state = ST_MHA_SOFTMAX;
@@ -262,11 +332,14 @@ module transformer_master_ctrl (
         // Default System Hooks
         layer_done       = 1'b0;
         
-        // Default Memory Control
+        // Fetch logic
         fetch_start      = 1'b0;
         fetch_buffer_sel = 4'b0000;
         fetch_tiles_ctrl = 2'b00;
         fetch_double_buf = 1'b0;
+        
+
+        // write logic
         write_start      = 1'b0;
 
         // Default SA Control
@@ -284,7 +357,7 @@ module transformer_master_ctrl (
             // MULTI-HEAD ATTENTION
             // ----------------------------------------------------
             FETCHING_W: begin
-                // Example: Fetch Weights 'W' 
+                // Fetch Weights 'W' 
                 fetch_buffer_sel = 4'b0000;  
                 fetch_tiles_ctrl = 2'b01;  // fetch 32
                 fetch_double_buf = db_control;
@@ -294,7 +367,7 @@ module transformer_master_ctrl (
             end
 
             FETCHING_I: begin
-                // Example: Fetch Weights 'I'
+                //  Fetch Weights 'I'
                 fetch_buffer_sel = 4'b0010; 
                 fetch_tiles_ctrl = 2'b00; // fetch 512
                 fetch_double_buf = db_control;
@@ -321,7 +394,26 @@ module transformer_master_ctrl (
             end
 
             FETCHING_Kt: begin
+                // Fetch Weights 'W' 
+                fetch_buffer_sel = 4'b0100;  
+                fetch_tiles_ctrl = 2'b01;  // fetch 32
+                
+                // Wake up Systolic Array
+                sa_load_weight = 1'b1;
+            end
 
+            FETCHING_Q: begin
+                //  Fetch Weights 'I'
+                fetch_buffer_sel = 4'b0011; 
+                fetch_tiles_ctrl = 2'b00; // fetch 512
+                
+                // Wake up Systolic Array
+
+                if (sa_first_iter_counter == 0) begin
+                    sa_first_iter = 1'b1;  // we need it high only for the first iteration (as we dont have any partial sums)
+                end
+                sa_valid_in = 1'b1;
+            end
 
 
 
