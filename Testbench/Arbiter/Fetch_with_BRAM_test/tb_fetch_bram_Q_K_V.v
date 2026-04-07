@@ -9,9 +9,10 @@ module tb_fetch_bram_Q_K_V;
     parameter CLK_PERIOD           = 10 ;
     
     reg clk, rst_n;
-    reg start_fetch, reset_addr_counter, Double_buffering;
-    reg [2:0] Buffer_Select;
-    reg Tiles_Control;
+    reg start_fetch, reset_in_addr_counter, reset_wt_addr_counter, Double_buffering;
+    reg [3:0] Buffer_Select;
+    reg hold_addr_ptr;
+    reg [1:0]Tiles_Control;
     reg ena, wea;
     reg [ADDR_WIDTH-1:0] addra;
     reg [DATA_WIDTH-1:0] dina;
@@ -40,10 +41,12 @@ module tb_fetch_bram_Q_K_V;
         .rst_n(rst_n),
         
         .start_fetch(start_fetch),
-        .reset_addr_counter(reset_addr_counter),
+        .reset_in_addr_counter(reset_in_addr_counter),
+        .reset_wt_addr_counter(reset_wt_addr_counter),
         .Buffer_Select(Buffer_Select),
         .Tiles_Control(Tiles_Control),
         .Double_buffering(Double_buffering),
+        .hold_addr_ptr(hold_addr_ptr),
 
         .wea(wea),
         .ena(ena),
@@ -63,7 +66,9 @@ module tb_fetch_bram_Q_K_V;
         // Reset
         rst_n = 0;
         start_fetch = 0;
-        reset_addr_counter = 0;
+        reset_in_addr_counter = 0;
+        reset_wt_addr_counter = 0;
+        hold_addr_ptr = 0;
         Double_buffering = 1'b0;
         ena = 0;
         wea = 0;
@@ -102,6 +107,7 @@ module tb_fetch_bram_Q_K_V;
         
         
         // changing the buffer and no. of tiles
+        @(negedge clk);
         Buffer_Select = 3'b011; // choosing the Q buffer
         Tiles_Control = 1'b0;   // tiling 512
         //reset_addr_counter = 1; // to reset the counter
@@ -119,7 +125,7 @@ module tb_fetch_bram_Q_K_V;
 
 
 
-
+        @(negedge clk);
         Buffer_Select = 3'b100; // choosing the K buffer again
         Tiles_Control = 1'b1;   // tiling 32 as this is our weights if expression valids
         
@@ -138,7 +144,7 @@ module tb_fetch_bram_Q_K_V;
         $display("Fetching K buffer done at time %0t", $time);
 
 
-
+        @(negedge clk);
         Buffer_Select = 3'b011; // choosing the Q buffer
         Tiles_Control = 1'b0;   // tiling 512
         //reset_addr_counter = 1; // to reset the counter
@@ -155,15 +161,17 @@ module tb_fetch_bram_Q_K_V;
         $display("Fetching Q buffer done at time %0t", $time);
 
 
-
+        @(negedge clk);
         // changing the buffer and no. of tiles
         Buffer_Select = 3'b101; // choosing the V buffer
         Tiles_Control = 1'b1;   // tiling 32
 
-        reset_addr_counter = 1; // to reset the counter (we will reset here as we want to start from begining)
+        reset_in_addr_counter = 1;
+        reset_wt_addr_counter = 1; // to reset the counter (we will reset here as we want to start from begining)
         
         repeat(2) @(negedge clk);
-        reset_addr_counter = 0; 
+        reset_in_addr_counter = 0;
+        reset_wt_addr_counter = 0;
         // fetch again
         $display("Starting fetch from V buffer...");
         start_fetch = 1;

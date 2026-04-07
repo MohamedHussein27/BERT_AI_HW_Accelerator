@@ -14,10 +14,12 @@ module fetch_bram_Q_K_V_top #(
     // Control signals for fetch logic
     // =====================
     input  wire         start_fetch,
-    input  wire         reset_addr_counter,
-    input  wire [2:0]   Buffer_Select,
-    input  wire         Tiles_Control,
+    input  wire         reset_in_addr_counter,
+    input  wire         reset_wt_addr_counter,
+    input  wire [3:0]   Buffer_Select,
+    input  wire [1:0]   Tiles_Control,
     input  wire         Double_buffering,
+    input  wire         hold_addr_ptr,
 
     // =====================
     // Write-side (Port A) inputs to preload BRAM
@@ -55,10 +57,12 @@ module fetch_bram_Q_K_V_top #(
         .rst_n(rst_n),
 
         .start_fetch(start_fetch),
-        .reset_addr_counter(reset_addr_counter),
+        .reset_in_addr_counter(reset_in_addr_counter),
+        .reset_wt_addr_counter(reset_wt_addr_counter),
         .Buffer_Select(Buffer_Select),
         .Tiles_Control(Tiles_Control),
         .Double_buffering(Double_buffering),
+        .hold_addr_ptr(hold_addr_ptr),
 
         .bram_addr(addrb),
         .bram_en(bram_en_b),
