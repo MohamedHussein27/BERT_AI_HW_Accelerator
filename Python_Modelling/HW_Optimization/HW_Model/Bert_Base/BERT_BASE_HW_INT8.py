@@ -420,9 +420,6 @@ class MultiHeadSelfAttention(nn.Module):
         b = self.base   # e.g. 'bert.encoder.layers.0.attention'
 
         # ── Q / K / V GeMM (INT8×INT8 → INT32) → Quantize → INT8 buffer
-        # One per-tensor Quantize.apply after the full projection (not per tile).
-        # This is the INT8 output buffer the hardware writes after the GeMM+bias.
-        # All tiles downstream read from this same buffer with the same scale.
         q_raw  = self.transpose_for_scores(self.q(hidden_states))
         k_raw  = self.transpose_for_scores(self.k(hidden_states))
         v_raw  = self.transpose_for_scores(self.v(hidden_states))
@@ -437,10 +434,7 @@ class MultiHeadSelfAttention(nn.Module):
         B, H, Sq, D = q_full.shape
         Sk           = k_full.size(2)
 
-        # ── QKᵀ GeMM (INT8×INT8 → INT32) → Dequant→Q5.26 → Softmax → INT8
-        # Tiles read from the already-INT8 Q/K buffers — no re-quantization.
-        # to_fixed_point(Q5.26) inside PLASoftmax simulates the dequant→Q5.26 step.
-        # PLASoftmax.forward() ends with Quantize.apply → INT8 (Q1.15→INT8).
+        # ── QKᵀ GeMM (INT8×INT8 → INT32) 
         attn_scores = torch.zeros(B, H, Sq, Sk, device=hidden_states.device)
         for i in range(0, Sq, TILE_SIZE):
             for j in range(0, Sk, TILE_SIZE):
@@ -454,23 +448,25 @@ class MultiHeadSelfAttention(nn.Module):
         if attention_mask is not None:
             attn_scores = attn_scores + attention_mask
 
-        # PLASoftmax: INT32 scores → Q5.26 → PLA-exp → softmax → Quantize → INT8
-        attn_probs_raw = self.softmax(attn_scores)
+        # ── HARDWARE ALIGNMENT FIX 1: Quantize QxK^T INT32 to INT8 
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{b}.qkt_buffer.output_scale', attn_scores)
+        attn_scores_int8 = Quantize.apply(attn_scores)
+
+        # PLASoftmax: Fetches INT8 → De-Quantizes to Q5.26 internally → PLA-exp → softmax → Quantize → INT8
+        attn_probs_raw = self.softmax(attn_scores_int8)
+        
         if scale_tracker.enabled:
             scale_tracker.record_activation_scale(f'{b}.softmax.output_scale', attn_probs_raw)
         attn_probs = self.attn_dropout(attn_probs_raw)
 
         # ── ·V GeMM (INT8×INT8 → INT32) → Quantize → INT8 
-        # V is already INT8 from the buffer above.
-        # After the weighted-sum GeMM the hardware quantizes the INT32 accumulator
-        # back to INT8 before feeding into the Wo GeMM.
         context = torch.zeros_like(v_full)
         for i in range(0, Sq, TILE_SIZE):
             context[:, :, i:i+TILE_SIZE, :] = torch.matmul(
                 attn_probs[:, :, i:i+TILE_SIZE, :], v_full
             )
 
-        # Quantize ·V output → INT8  (PDF: Quantize 32→INT8 after ·V GeMM)
         context_merged = context.permute(0, 2, 1, 3).contiguous().view(hidden_states.size())
         if scale_tracker.enabled:
             scale_tracker.record_activation_scale(f'{b}.ctx.output_scale', context_merged)
@@ -503,15 +499,18 @@ class FeedForward(nn.Module):
         TILE_SIZE = 32
         B, S, _ = x.shape
 
-        # ── ffn_1 GeMM (INT8×INT8 → INT32) → Dequant→Q10.22 → GELU → Q48.16→INT8
-        # to_fixed_point(Q10.22) dequantizes the INT32 accumulator to the fixed-point
-        # format the hardware GELU unit is calibrated for (PDF: dequant 32→Q10.22).
-        # Quantize.apply after GCU simulates Q48.16→INT8 at the GCU output register.
+        # ── ffn_1 GeMM (INT8×INT8 → INT32)
         out1 = torch.zeros(B, S, self.dense_1.out_features, device=x.device)
         for i in range(0, S, TILE_SIZE):
             out1[:, i:i+TILE_SIZE, :] = self.dense_1(x[:, i:i+TILE_SIZE, :])
 
-        out1_q10_22  = to_fixed_point(out1, 32, 22)          # INT32 → Q10.22 dequant
+        # ── HARDWARE ALIGNMENT FIX 2: Quantize 32 int to 8 int -> Intermediate Buffer
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(f'{self.base}.intermediate_buffer.output_scale', out1)
+        out1_int8 = Quantize.apply(out1)
+
+        # Fetch from Intermediate Buffer -> De-Quantize INT8 to Q10.22 -> GELU
+        out1_q10_22  = to_fixed_point(out1_int8, 32, 22)      
         gcu_out      = self.gcu(out1_q10_22)
         gcu_q48_16   = to_fixed_point(gcu_out, 64, 16)      # PDF: GCU output → Q48.16
         if scale_tracker.enabled:
@@ -523,7 +522,7 @@ class FeedForward(nn.Module):
         for i in range(0, S, TILE_SIZE):
             out2[:, i:i+TILE_SIZE, :] = self.dense_2(x[:, i:i+TILE_SIZE, :])
 
-        # Quantize ffn_2 output → INT8
+        # Quantize ffn_2 output → INT8 (Output Buffer)
         if scale_tracker.enabled:
             scale_tracker.record_activation_scale(f'{self.base}.dense_2.output_scale', out2)
         return self.dropout(Quantize.apply(out2))
@@ -607,6 +606,7 @@ class BertModel(nn.Module):
             intermediate_size    = intermediate_size,
             dropout              = dropout,
         )
+        
         # Pooler is standard float linear (not quantized — matches original)
         self.pooler            = nn.Linear(hidden_size, hidden_size)
         self.pooler_activation = nn.Tanh()
@@ -712,7 +712,7 @@ def extract_and_save_quantized_weights(model: nn.Module, file_path: str):
                 quantized_state_dict[f'{name}.scale']  = np.float32(bias_scale)
                 print(f"  {name}: INT32, bias_scale={bias_scale:.6e}")
             else:
-                # Fallback (e.g. pooler bias — pooler is float, not QuantizedLinear)
+                # Fallback
                 quantized_state_dict[name] = param_data.astype(np.float32)
                 print(f"  {name}: FP32 (fallback)")
 
