@@ -3,38 +3,42 @@ module fetch_logic_gen #(
     parameter ORIGINAL_COLUMNS     = 768,   // matrix columns before transpose
     parameter ORIGINAL_ROWS        = 512,   // matrix rows before transpose
     parameter NUM_BITS             = 8,     // quantized element
-    parameter DATA_WIDTH           = 256
+    parameter DATA_WIDTH           = 256,
+    parameter NUM_BUFFERS          = 17     // Total number of buffers to read from
 ) (
     // System Signals
-    input  wire                         clk,
-    input  wire                         rst_n,
+    input  wire                        clk,
+    input  wire                        rst_n,
 
     // Control Signals
-    input  wire                         start_fetch,           // Pulse to begin fetching the next tile
-    input  wire                         reset_in_addr_counter, // Pulse to reset the input address pointer
-    input  wire                         reset_wt_addr_counter, // Pulse to reset the weights address pointer
-    input  wire [3:0]                   Buffer_Select,         // control signal to choose which buffer we are reading from
-    input  wire [1:0]                   Tiles_Control,         // 2'b01 = weights (32 tiles), 2'b00 = inputs (512 tiles), 2'b10 = LayerNorm
-    input  wire                         Double_buffering,      // control signal to make us read from the double buffering addresses
-    input  wire                         hold_addr_ptr,         // control signal to make the address stuck to the same row
-    input  wire                         stop_counting,         // control signal to stop counting as we need to wait 32 clocks till we serialize data to softmax
+    input  wire                        start_fetch,           // Pulse to begin fetching the next tile
+    input  wire                        reset_in_addr_counter, // Pulse to reset the input address pointer
+    input  wire                        reset_wt_addr_counter, // Pulse to reset the weights address pointer
+    input  wire [4:0]                  Buffer_Select,         // control signal to choose which buffer we are reading from
+    input  wire [1:0]                  Tiles_Control,         // 2'b01 = weights (32 tiles), 2'b00 = inputs (512 tiles), 2'b10 = LayerNorm
+    input  wire                        Double_buffering,      // control signal to make us read from the double buffering addresses
+    input  wire                        hold_addr_ptr,         // control signal to make the address stuck to the same row
+    input  wire                        stop_counting,         // control signal to stop counting as we need to wait 32 clocks till we serialize data to softmax
 
     // BRAM Interface
-    output reg  [ADDR_WIDTH-1:0]        bram_addr,             // Address sent to the BRAM
-    output reg                          bram_en,               // Enable signal for the BRAM read port
+    output reg  [ADDR_WIDTH-1:0]       bram_addr,             // Address sent to the BRAM
+    output reg  [NUM_BUFFERS-1:0]      bram_en,               // One-hot Enable signal for the BRAM read ports
 
     // Status Signal
-    output reg                          fetch_in_done,            // Pulse high for one cycle when done fetching input
-    output reg                          fetch_wt_done,          // Pulse high for one cycle when done fetching weight
-    output reg                          busy                   // busy signal to indicate we are still fetching
+    output reg                         fetch_in_done,         // Pulse high for one cycle when done fetching input
+    output reg                         fetch_wt_done,         // Pulse high for one cycle when done fetching weight
+    output reg                         busy                   // busy signal to indicate we are still fetching
 );
 
     // State Machine Definition
     localparam [1:0] IDLE     = 2'b00;
     localparam [1:0] FETCHING = 2'b01;
     localparam [1:0] DONE     = 2'b10;
+    localparam [1:0] WAIT     = 2'b11; 
 
     reg [1:0] current_state, next_state;
+    
+    reg general_en; // Internal signal to indicate FSM wants to fetch right now
     
     reg [15:0] FETCH_START_OFFSET;
     reg [13:0] NUM_FETCHES_PER_TILE; // to choose how many fetchs we take in one tile
@@ -100,7 +104,6 @@ module fetch_logic_gen #(
                     if (reset_in_addr_counter) 
                         begin
                             in_addr_ptr <= 0;
-                            
                         end
                     else if (current_state == FETCHING && next_state == DONE && !hold_addr_ptr && Tiles_Control != 2'b01) // incerement at transition as not to incerement the wrong pointer as tiles cntrl gets changed
                         begin
@@ -135,11 +138,11 @@ module fetch_logic_gen #(
     // Combinational Logic
     always @(*) 
         begin
-            next_state = current_state;
-            bram_en    = 1'b0;
+            next_state    = current_state;
+            general_en    = 1'b0;
             fetch_in_done = 1'b0;
             fetch_wt_done = 1'b0;
-            busy       = 1'b0;
+            busy          = 1'b0;
 
             // Dynamically select the active pointer based on Tiles_Control
             if (Tiles_Control == 2'b01)
@@ -166,15 +169,22 @@ module fetch_logic_gen #(
                         end
                       end
                 FETCHING: begin
-                    bram_en = 1'b1;
-                    busy    = 1'b1;
+                    general_en = 1'b1;
+                    busy       = 1'b1;
                     if (fetch_offset == NUM_FETCHES_PER_TILE - 1) 
                         begin
                             next_state = DONE;
                         end
                     // for handling softmax fifo
                     else if (stop_counting)
-                        next_state = IDLE;
+                        next_state = WAIT;
+                end
+
+                WAIT: begin
+                    if (start_fetch)
+                        next_state = FETCHING;
+                    else
+                        next_state = WAIT;
                 end
                 
                 DONE: begin
@@ -191,61 +201,95 @@ module fetch_logic_gen #(
             endcase
         end
 
-        // always block to choose from which address will we start
+        // always block to choose from which address will we start and route the enable signal
         always @(*) begin
+            // Default assignments
+            bram_en            = {NUM_BUFFERS{1'b0}};
+            FETCH_START_OFFSET = 16'd0;
+
             case (Buffer_Select)
 
                 // =====================================================
                 // ================= ATTENTION BUFFERS =================
                 // =====================================================
 
-                4'b0000 : FETCH_START_OFFSET = 
-                            (Double_buffering) ? 16'd32 : 16'd0;    // W
-
-                4'b0001 : FETCH_START_OFFSET = 16'd64;              // b
-
-                4'b0010 : FETCH_START_OFFSET = 
-                            (Double_buffering) ? 16'd624 : 16'd112;  // I
-
-                4'b0011 : FETCH_START_OFFSET = 16'd0;               // Q
-
-                4'b0100 : FETCH_START_OFFSET = 
-                    ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH); // K
-
-                4'b0101 : FETCH_START_OFFSET = 
-                    2*((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH); // V
-
-                4'b0110 : FETCH_START_OFFSET = 0;                   // kTQ
-
-                4'b0111 : FETCH_START_OFFSET = 0;                   // SV
-
-                4'b1000 : FETCH_START_OFFSET = 16'd12288;            // H
-
+                5'd0 : begin 
+                    FETCH_START_OFFSET = (Double_buffering) ? 16'd32 : 16'd0;    // W
+                    bram_en[0] = general_en;
+                end
+                5'd1 : begin 
+                    FETCH_START_OFFSET = 16'd64;                                 // b
+                    bram_en[1] = general_en;
+                end
+                5'd2 : begin 
+                    FETCH_START_OFFSET = (Double_buffering) ? 16'd624 : 16'd112; // I
+                    bram_en[2] = general_en;
+                end
+                5'd3 : begin 
+                    FETCH_START_OFFSET = 16'd0;                                  // Q
+                    bram_en[3] = general_en;
+                end
+                5'd4 : begin 
+                    FETCH_START_OFFSET = ((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH); // K
+                    bram_en[4] = general_en;
+                end
+                5'd5 : begin 
+                    FETCH_START_OFFSET = 2*((ORIGINAL_COLUMNS*ORIGINAL_ROWS*NUM_BITS)/DATA_WIDTH); // V
+                    bram_en[5] = general_en;
+                end
+                5'd6 : begin 
+                    FETCH_START_OFFSET = 16'd0;                                  // kTQ
+                    bram_en[6] = general_en;
+                end
+                5'd7 : begin 
+                    FETCH_START_OFFSET = 16'd0;                                  // SM
+                    bram_en[7] = general_en;
+                end
+                5'd8 : begin 
+                    FETCH_START_OFFSET = 16'd0;                                  // SV
+                    bram_en[8] = general_en;
+                end
+                5'd9 : begin 
+                    FETCH_START_OFFSET = 16'd12288;                              // H
+                    bram_en[9] = general_en;
+                end
+                5'd10: begin 
+                    FETCH_START_OFFSET = 16'd0;                                  // add norm buffer 
+                    bram_en[10] = general_en;
+                end
+                5'd11: begin 
+                    FETCH_START_OFFSET = 16'd0;                                  // LN weights
+                    bram_en[11] = general_en;
+                end
 
                 // =====================================================
                 // ==================== FFN BUFFERS ====================
                 // =====================================================
 
-                // FFN Weights (double buffering ONLY here)
-                4'b1001 : FETCH_START_OFFSET =
-                            (Double_buffering) ? 16'd32 : 16'd0;
-
-                // FFN Bias
-                4'b1010 : FETCH_START_OFFSET = 16'd64;
-
-                // FFN Input
-                4'b1011 : FETCH_START_OFFSET = 
-                            (Double_buffering) ? 16'd12448 : 16'd0;
-
-                // FFN Intermediate
-                4'b1100 : FETCH_START_OFFSET = 16'd0;
-
-                // Output Buffer (O_buffer)
-                4'b1101 : FETCH_START_OFFSET = 
-                            (Double_buffering) ? 16'd61440 : 16'd0;
-
-                default : FETCH_START_OFFSET = 16'd0;
-
+                5'd12: begin 
+                    FETCH_START_OFFSET = (Double_buffering) ? 16'd32 : 16'd0;    // FFN Weights
+                    bram_en[12] = general_en;
+                end
+                5'd13: begin 
+                    FETCH_START_OFFSET = 16'd64;                                 // FFN Bias
+                    bram_en[13] = general_en;
+                end
+                5'd14: begin 
+                    FETCH_START_OFFSET = (Double_buffering) ? 16'd12448 : 16'd0; // FFN Input
+                    bram_en[14] = general_en;
+                end
+                5'd15: begin 
+                    FETCH_START_OFFSET = 16'd0;                                  // FFN Intermediate
+                    bram_en[15] = general_en;
+                end
+                5'd16: begin 
+                    FETCH_START_OFFSET = (Double_buffering) ? 16'd61440 : 16'd0; // Output Buffer (O_buffer)
+                    bram_en[16] = general_en;
+                end
+                default : begin 
+                    FETCH_START_OFFSET = 16'd0;
+                    bram_en = {NUM_BUFFERS{1'b0}};
+                end
             endcase
         end
 

@@ -46,8 +46,9 @@ module transformer_master_ctrl (
     output logic [3:0] write_buffer_sel,
     output logic       write_start,
     output logic       write_double_buf,
-    output logic       write_reset_address_counter
-    input  logic       write_done,
+    output logic       write_reset_address_counter,
+    output logic       write_sipo_mode, // for making the write logic inceremnt address only when sipo_valid_out
+    input  logic       write_done_all,
     input  logic       write_tile_done,
     input  logic       write_busy,
 
@@ -64,8 +65,11 @@ module transformer_master_ctrl (
     // ========================================================
     // 3. Softmax Interface
     // ========================================================
+    input  logic       piso_valid_out,
+    input  logic       piso_busy,
     output logic       softmax_start,
     input  logic       softmax_done,
+    input  logic       softmax_out_last,
 
     // ========================================================
     // 4. LayerNorm Interface
@@ -117,6 +121,7 @@ module transformer_master_ctrl (
     //logic first_sa_time; // flag to raise the first iteration output for the sa in the first time only
 
     logic write_pulse_flag; // flag to make the write to be high only for one cycle
+    logic softmax_pulse_flag; // flag to make softmax start sig high for one clock
 
 
 
@@ -133,6 +138,7 @@ module transformer_master_ctrl (
 
             // falgs
             write_pulse_flag <= 1;
+            softmax_pulse_flag <= 1;
         end
         else begin        
             state <= next_state;
@@ -200,23 +206,46 @@ module transformer_master_ctrl (
                 done_wt_tile_counter <= done_wt_tile_counter + 1;
         end
 
-        // inceremnt piso counter to go back to fetching Q_Kt state
-        if (state == WAIT_PISO) 
+        // incerement piso counter to go back to fetching Q_Kt state
+        /*if (state == WAIT_PISO) 
             piso_counter <= piso_counter + 1; // can be handeled by busy signal from piso module
         else
-            piso_counter <= '0;
+            piso_counter <= '0;*/
+        
             
 
         
 
         //**************************************** flags ************************************\\
+        // pulsing write start
         if (sa_valid_out && write_pulse_flag) begin
             write_start <= 1;
             write_pulse_flag <= 0;
         end
+        else if (next_state == WRITING_Q_K_V || next_state == WRITING_Q_Kt) begin
+            write_pulse_flag <= 1;
+        end
         else begin
             write_start <= 0;
         end
+
+        // pulsign softmax start
+        if (piso_valid_out && softmax_pulse_flag) begin
+            softmax_start <= 1;
+            softmax_pulse_flag <= 0;
+        end
+        else if (state == FETCHING_Q_Kt) begin
+            softmax_pulse_flag <= 1;
+        end
+        else begin
+            softmax_pulse_flag <= 0;
+        end
+
+
+        if (state == WRITING_Q_Kt)
+            fetch_stop_counting <= 1;
+        else 
+            fetch_stop_counting <= 0;
 
     end
 
@@ -229,7 +258,7 @@ module transformer_master_ctrl (
         case (state)
             ST_IDLE:        if (start_inference) next_state = FETCHING_W;
             
-            // First Stage: filling Q K V matrices to be used 
+            //******************** First Stage: filling Q K V matrices to be used ***********************\\
             FETCHING_W:     if (fetch_done)             next_state = FETCHING_I;
             FETCHING_I: 
                         begin   
@@ -242,12 +271,12 @@ module transformer_master_ctrl (
                         end 
             WRITING_Q_K_V: 
                         begin  
-                            if (write_done && Q_K_V_sel == 3) next_state = FETCHING_Kt;
-                            else if (write_done)              next_state = FETCHING_W;
+                            if (write_done_all && Q_K_V_sel == 3) next_state = FETCHING_Kt;
+                            else if (write_done_all)              next_state = FETCHING_W;
                         end
 
 
-            // second stage: filling Q Kt matrix to be used in softmax
+            //******************** second stage: filling Q Kt matrix to be used in softmax ******************\\
             FETCHING_Kt:    if (fetch_done)             next_state = FETCHING_Q; // Kt is treated as weights
             FETCHING_Q: begin   
                             if (sa_done) begin
@@ -260,23 +289,34 @@ module transformer_master_ctrl (
             
             WRITING_Q_Kt:
                         begin  
-                            if (write_done && Q_Kt_sel) next_state = FETCHING_Q_Kt;
-                            else if (write_done)              next_state = FETCHING_Kt;
+                            if (write_done_all && Q_Kt_sel) next_state = FETCHING_Q_Kt;
+                            else if (write_done_all)              next_state = FETCHING_Kt;
                         end
 
-            // third stage: softmax
-            FETCHING_Q_Kt: if (fetch_in_done) next_state = WAIT_SIPO;
-                           else next_state = WAIT_PISO; // wait the 32 clocks as the 32 elements being serialized to the softmax
+            //********************* third stage: softmax ****************************\\
+            FETCHING_Q_Kt: if (fetch_in_done) next_state = WAIT_SOFTMAX; // wait softmax processing the row and then give it another
+                           else if (fetch_stop_counting) next_state = WAIT_PISO;
+                           else next_state = FETCHING_Q_Kt; // wait the 32 clocks as the 32 elements being serialized to the softmax
             
             WAIT_PISO: 
                         begin
-                            if (piso_counter == 16) next_state = FETCHING_Q_Kt;
-                            else                    next_state = WAIT_PISO;
+                            /*if (piso_counter == 16) next_state = FETCHING_Q_Kt;
+                            else                    next_state = WAIT_PISO;*/
+                            if (!piso_busy) next_state = FETCHING_Q_Kt;
+                            else            next_state = WAIT_PISO;
                         end
-
-            WAIT_SIPO:
-
-            FETCHING_SM:
+            // we are processing the complete row in softmax
+            WAIT_SOFTMAX: if (softmax_out_valid) next_state = WAIT_SIPO;
+                          else next_state = WAIT_SOFTMAX;
+            
+            // assuming the complete row is being outputed serially
+            WAIT_SIPO: 
+                        begin    
+                            if (write_done_all) next_state = FETCHING_V;
+                            else if (softmax_out_last) next_state = FETCHING_Q_Kt;
+                            else next_state = WAIT_SIPO;
+                        end
+            //FETCHING_SM: we can handle it using sipo writing in write logic
 
             FETCHING_V:
 
@@ -315,7 +355,7 @@ module transformer_master_ctrl (
             ST_FFN_LINEAR1:  if (fetch_done)         next_state = ST_FFN_GELU;
             
             // GELU is purely combinational , so we just wait for memory write to finish
-            ST_FFN_GELU:     if (write_done)      next_state = ST_FFN_LINEAR2;
+            ST_FFN_GELU:     if (write_done_all)      next_state = ST_FFN_LINEAR2;
             
             ST_FFN_LINEAR2:  if (fetch_done)         next_state = ST_FFN_ADD_NORM;
             ST_FFN_ADD_NORM: if (ln_done)         next_state = ST_DONE;
@@ -349,7 +389,7 @@ module transformer_master_ctrl (
         sa_last_tile     = 1'b0;
         //first_sa_time    = 1'b1;
 
-
+        // softmax
         softmax_start    = 1'b0;
 
         case (state)
@@ -415,6 +455,13 @@ module transformer_master_ctrl (
                 sa_valid_in = 1'b1;
             end
 
+            FETCHING_Q_Kt: begin
+
+
+            WAIT_PISO: begin
+                softmax_out_in = 1;
+                write_sipo_mode = 1;
+            end
 
 
             ST_MHA_SOFTMAX: begin
