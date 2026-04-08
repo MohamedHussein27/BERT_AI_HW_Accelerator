@@ -5,7 +5,7 @@ module parrallel2serial #(
     input logic clk,
     input logic rst_n,
     input logic valid_in,
-    input logic [ELEMENT_DATAWIDTH-1:0][VEC_SIZE-1:0] data_in,
+    input logic [VEC_SIZE-1:0][ELEMENT_DATAWIDTH-1:0] data_in,
 
     output logic [ELEMENT_DATAWIDTH-1:0] data_out,
     output logic busy,
@@ -14,7 +14,7 @@ module parrallel2serial #(
 
     localparam COUNTER_WIDTH = $clog2(VEC_SIZE);
 
-    logic [ELEMENT_DATAWIDTH-1:0][VEC_SIZE-1:0] data_reg;
+    logic [VEC_SIZE-1:0][ELEMENT_DATAWIDTH-1:0] data_reg;
     logic [COUNTER_WIDTH-1:0] count;
     logic start;
 
