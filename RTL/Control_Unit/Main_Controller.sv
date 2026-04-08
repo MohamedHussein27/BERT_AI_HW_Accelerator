@@ -229,7 +229,7 @@ module transformer_master_ctrl (
             write_start <= 0;
         end
 
-        // pulsign softmax start
+        // pulsing softmax start
         if (piso_valid_out && softmax_pulse_flag) begin
             softmax_start <= 1;
             softmax_pulse_flag <= 0;
