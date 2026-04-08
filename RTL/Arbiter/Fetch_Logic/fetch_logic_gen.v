@@ -174,8 +174,14 @@ module fetch_logic_gen #(
                         end
                     // for handling softmax fifo
                     else if (stop_counting)
-                        next_state = IDLE;
+                        next_state = WAIT;
                 end
+
+                WAIT: begin
+                    if (start_fetch)
+                        next_state = FETCHING;
+                    else
+                        next_state = WAIT;
                 
                 DONE: begin
                     if (Tiles_Control == 2'b01)
