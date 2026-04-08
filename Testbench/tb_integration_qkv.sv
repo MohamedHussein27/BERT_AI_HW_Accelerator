@@ -29,6 +29,7 @@ module tb_transformer_top();
     wire       fetch_double_buf;
     wire       fetch_reset_addr;
     wire       hold_addr_ptr;
+    wire       fetch_stop_counting; // Added to match updated controller
     
     wire       fetch_done;
     
@@ -107,16 +108,19 @@ module tb_transformer_top();
         .fetch_buffer_sel            (fetch_buffer_sel),
         .fetch_tiles_ctrl            (fetch_tiles_ctrl),
         .fetch_double_buf            (fetch_double_buf),
-        .fetch_reset_address_counter (fetch_reset_addr),
-        .hold_addr_ptr               (hold_addr_ptr),
-        .fetch_done                  (fetch_done),
+        .fetch_hold_addr_ptr         (hold_addr_ptr),
+        .fetch_reset_in_addr_counter (fetch_reset_addr), 
+        .fetch_reset_wt_addr_counter (fetch_reset_addr),
+        .fetch_stop_counting         (fetch_stop_counting),
+        .fetch_in_done               (fetch_done),
+        .fetch_wt_done               (fetch_done),
         .fetch_busy                  (1'b0), // Tied off
 
         .write_buffer_sel            (write_buffer_sel),
         .write_start                 (write_start),
         .write_double_buf            (write_double_buf),
         .write_reset_address_counter (write_reset_addr),
-        .write_done                  (write_done),
+        .write_done_all              (write_done),
         .write_tile_done             (write_tile_done),
         .write_busy                  (write_busy),
 
@@ -125,14 +129,9 @@ module tb_transformer_top();
         .sa_first_iter               (cu_sa_first_iter),
         .sa_last_tile                (cu_sa_last_tile),
         .sa_done                     (sa_done),
-        .sa_valid_out                (sa_valid_out),
-
-        // Softmax and LayerNorm Ignored for this test
-        .softmax_start               (), 
-        .softmax_done                (1'b0),
-        .ln_valid_out                (1'b0),
-        .ln_done                     (1'b0),
-        .ln_valid_in                 ()
+        .sa_valid_out                (sa_valid_out)
+        
+        // Softmax and LayerNorm ports removed as they are no longer in the controller module
     );
 
     // --- Fetch Logic ---
@@ -339,16 +338,18 @@ module tb_transformer_top();
         for (row = 0; row < 512; row = row + 1) begin
             matrix_512x32[row] = {32{8'd2}};
         end
-        write_weight(?,matrix_32x32);
-        write_weight(?,matrix_32x32); // db
-        load_input(?,matrix_512x32);  // db
-        load_input(?,matrix_512x32);
+        write_weight(16'd0, matrix_32x32);
+        write_weight(16'd32, matrix_32x32); // db
+        load_input(16'd64, matrix_512x32);  // db
+        load_input(16'd576, matrix_512x32);
 
         // the controller will start working here 
+        @(posedge clk);
+        start_inference = 1;
+        @(posedge clk);
+        start_inference = 0;
 
-
-        wait(/* specific signal will be added in the controller for knowing the thae controller is done with writing Q,K,V 
-            for depugining only*/);  
+        wait(u_cu.state == 2'd0);  
         
         dump_qkv_buffer_to_file("qkv_computed_results.txt");
         $finish;
@@ -404,5 +405,4 @@ module tb_transformer_top();
             $display("Task: Dump Complete. File saved to %s", filename);
         end
     endtask
-
 endmodule
