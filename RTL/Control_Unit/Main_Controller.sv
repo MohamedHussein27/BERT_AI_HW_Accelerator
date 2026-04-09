@@ -455,14 +455,28 @@ module transformer_master_ctrl (
                 sa_valid_in = 1'b1;
             end
 
-            FETCHING_Q_Kt: begin
+            
+            FETCHING_Q_Kt: begin // we dont need sa here
+                //  Fetch Weights 'Softmax'
+                fetch_buffer_sel = 4'b0110; 
+                fetch_tiles_ctrl = 2'b11; // fetch 16
+            end
+                
+                
+            WAIT_PISO: begin
+
+            
+            WAIT_SOFTMAX:
+
+            
 
 
             WAIT_PISO: begin
                 softmax_out_in = 1;
                 write_sipo_mode = 1;
             end
-
+            
+            FETCHING_V:
 
             ST_MHA_SOFTMAX: begin
                 // Fetch Scores, stream directly to bert_softmax.sv [cite: 131-133]
