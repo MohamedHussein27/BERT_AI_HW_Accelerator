@@ -56,8 +56,11 @@ module transformer_master_ctrl (
     // ========================================================
     // 4. Quantization
     // ========================================================
+    // Vector Quantizaiton
     output logic       quantize_valid_in,
     output logic       quantize_param_addr
+    // Element Quantization
+    output logic       quantize_u_valid_in
 );
 
     // --------------------------------------------------------
@@ -121,6 +124,11 @@ module transformer_master_ctrl (
     logic softmax_pulse_flag; // flag to make softmax start sig high for one clock
 
 
+    //
+
+    assign quantize_u_valid_in = softmax_out_valid;
+
+    //
     // ========================================================
     // Block 1: Sequential State Memory
     // ========================================================
