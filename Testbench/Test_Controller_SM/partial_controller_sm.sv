@@ -58,7 +58,7 @@ module transformer_master_ctrl (
     // ========================================================
     // Vector Quantizaiton
     output logic       quantize_valid_in,
-    output logic       quantize_param_addr
+    output logic       quantize_param_addr,
     // Element Quantization
     output logic       quantize_u_valid_in
 );
@@ -275,7 +275,7 @@ module transformer_master_ctrl (
             ST_IDLE:        if (start_inference) next_state = FETCHING_W;
             
             //******************** First Stage: filling Q K V matrices to be used ***********************\\
-            FETCHING_W:     if (fetch_done)             next_state = FETCHING_Q_Kt;
+            FETCHING_W:     if (fetch_wt_done)             next_state = FETCHING_Q_Kt;
             FETCHING_I: 
                         begin   
                             if (sa_done) begin
@@ -293,7 +293,7 @@ module transformer_master_ctrl (
 
 
             //******************** second stage: filling Q Kt matrix to be used in softmax ******************\\
-            FETCHING_Kt:    if (fetch_done)             next_state = FETCHING_Q; // Kt is treated as weights
+            FETCHING_Kt:    if (fetch_wt_done)             next_state = FETCHING_Q; // Kt is treated as weights
             FETCHING_Q: begin   
                             if (sa_done) begin
                                 if (!sa_last_tile)  
