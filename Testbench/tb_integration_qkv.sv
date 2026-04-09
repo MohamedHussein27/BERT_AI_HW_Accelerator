@@ -1,6 +1,9 @@
 `timescale 1ns / 1ps
 
-module tb_transformer_top();
+module tb_integration_qkv();
+
+    parameter FETCH_NUM_BUFFERS = 17;
+    parameter WRITE_NUM_BUFFERS = 12;
 
     // Clock and Reset Generation
     reg clk;
@@ -17,56 +20,67 @@ module tb_transformer_top();
         rst_n = 1; // Release reset
     end
 
-
     // Top-Level Control Signals
     reg  start_inference;
-    wire layer_done;
+    wire layer_done_wire;
 
-    // Controller <-> Fetch Logic Signal
-    wire       fetch_start;
-    wire [3:0] fetch_buffer_sel;
-    wire [1:0] fetch_tiles_ctrl;
-    wire       fetch_double_buf;
-    wire       fetch_reset_addr;
-    wire       hold_addr_ptr;
-    wire       fetch_stop_counting; // Added to match updated controller
+    // =======================================================
+    // Interconnect Wires (Refactored to _wire suffix)
+    // =======================================================
     
-    wire       fetch_done;
+    // Controller <-> Fetch Logic Signals
+    wire       fetch_start_wire;
+    wire [4:0] fetch_buffer_sel_wire; // 5-bit to match fetch_logic_gen
+    wire [1:0] fetch_tiles_ctrl_wire;
+    wire       fetch_double_buf_wire;
+    wire       fetch_reset_wt_addr_counter_wire;
+    wire       fetch_reset_in_addr_counter_wire;
+    wire       fetch_hold_addr_ptr_wire;
+    wire       fetch_stop_counting_wire;
+    wire       fetch_busy_wire;
+    wire       fetch_wt_done_wire;
+    wire       fetch_in_done_wire;
     
-    wire [15:0] fetch_bram_addr;
-    wire        fetch_bram_en;
+    wire [10:0]                  fetch_bram_addr_wire;
+    wire [FETCH_NUM_BUFFERS-1:0] fetch_bram_en_wire;
 
-    wire [255:0] doutb_wbi;
-    wire [255:0] doutb_qkv;
+    // Handle width mismatch between 3-bit output from master controller and 4-bit input to fetch logic
+    assign fetch_buffer_sel_wire[4] = 1'b0; 
 
     // Controller <-> Write Logic Signals
-    wire [3:0] write_buffer_sel;
-    wire       write_start;
-    wire       write_double_buf;
-    wire       write_reset_addr;
+    wire [3:0] write_buffer_sel_wire;
+    wire       write_start_wire;
+    wire       write_double_buf_wire;
+    wire       write_reset_addr_wire;
     
-    wire       write_done;
-    wire       write_tile_done;
-    wire       write_busy;
+    wire       write_done_all_wire;
+    wire       write_tile_done_wire;
+    wire       write_busy_wire;
     
-    wire [15:0] write_bram_addr;
-    wire        write_bram_we;
+    wire [15:0]                  write_bram_addr_wire;
+    wire [WRITE_NUM_BUFFERS-1:0] write_bram_we_wire;
 
     // Controller <-> Systolic Array Signals
-    wire cu_sa_valid_in;
-    wire cu_sa_load_weight;
-    wire cu_sa_first_iter;
-    wire cu_sa_last_tile;
+    wire sa_valid_in_wire;
+    wire sa_load_weight_wire;
+    wire sa_first_iter_wire;
+    wire sa_last_tile_wire;
     
-    wire sa_done;
-    wire sa_valid_out;
-    wire sa_ready;
-    wire sa_busy;
-    wire [1023:0] sa_data_out; // Assuming output matches width for N_SIZE=32, DATAWIDTH_out=32
+    wire sa_done_wire;
+    wire sa_valid_out_wire;
+    wire sa_ready_wire;
+    wire sa_busy_wire;
+    wire [1023:0] sa_data_out_wire; // Assuming output matches width for N_SIZE=32, DATAWIDTH_out=32
+
+    wire [255:0] doutb_wbi_wire;
+    wire [255:0] doutb_qkv_wire;
 
     // --- ONE-CYCLE DELAY REGISTERS ---
     reg reg_sa_valid_in;
+    reg reg_sa_valid_in_2;
+    reg reg_sa_valid_in_3;
     reg reg_sa_load_weight;
+    reg reg_sa_load_weight_2;
     reg reg_sa_first_iter;
     reg reg_sa_last_tile;
 
@@ -77,17 +91,19 @@ module tb_transformer_top();
             reg_sa_first_iter  <= 1'b0;
             reg_sa_last_tile   <= 1'b0;
         end else begin
-            reg_sa_valid_in    <= cu_sa_valid_in;
-            reg_sa_load_weight <= cu_sa_load_weight;
-            reg_sa_first_iter  <= cu_sa_first_iter;
-            reg_sa_last_tile   <= cu_sa_last_tile;
+            reg_sa_valid_in      <= sa_valid_in_wire;
+            reg_sa_load_weight   <= sa_load_weight_wire;
+            reg_sa_first_iter    <= sa_first_iter_wire;
+            reg_sa_last_tile     <= sa_last_tile_wire;
+            reg_sa_load_weight_2 <= reg_sa_load_weight;
+            reg_sa_valid_in_2    <= reg_sa_valid_in;
+            reg_sa_valid_in_3    <= reg_sa_valid_in_2;
         end
     end
 
-
     // Testbench Write & Read Signals
     // For W_B_I preload
-    reg [15:0]  tb_wbi_addr;
+    reg [10:0]  tb_wbi_addr;
     reg [255:0] tb_wbi_data;
     reg         tb_wbi_we;
 
@@ -96,94 +112,101 @@ module tb_transformer_top();
     reg [15:0]  tb_qkv_addrb;
     reg         tb_qkv_enb;
 
+
+    // =======================================================
     // Module Instantiations
+    // =======================================================
+
     // --- Main Controller ---
     transformer_master_ctrl u_cu (
         .clk                         (clk),
         .rst_n                       (rst_n),
         .start_inference             (start_inference),
-        .layer_done                  (layer_done),
+        .layer_done                  (layer_done_wire),
 
-        .fetch_start                 (fetch_start),
-        .fetch_buffer_sel            (fetch_buffer_sel),
-        .fetch_tiles_ctrl            (fetch_tiles_ctrl),
-        .fetch_double_buf            (fetch_double_buf),
-        .fetch_hold_addr_ptr         (hold_addr_ptr),
-        .fetch_reset_in_addr_counter (fetch_reset_addr), 
-        .fetch_reset_wt_addr_counter (fetch_reset_addr),
-        .fetch_stop_counting         (fetch_stop_counting),
-        .fetch_in_done               (fetch_done),
-        .fetch_wt_done               (fetch_done),
-        .fetch_busy                  (1'b0), // Tied off
+        .fetch_start                 (fetch_start_wire),
+        .fetch_buffer_sel            (fetch_buffer_sel_wire[3:0]), // Master Outputs 4 bits
+        .fetch_tiles_ctrl            (fetch_tiles_ctrl_wire),
+        .fetch_double_buf            (fetch_double_buf_wire),
+        .fetch_hold_addr_ptr         (fetch_hold_addr_ptr_wire),
+        .fetch_reset_in_addr_counter (fetch_reset_in_addr_counter_wire), 
+        .fetch_reset_wt_addr_counter (fetch_reset_wt_addr_counter_wire),
+        .fetch_stop_counting         (fetch_stop_counting_wire),
+        .fetch_in_done               (fetch_in_done_wire),
+        .fetch_wt_done               (fetch_wt_done_wire),
+        .fetch_busy                  (fetch_busy_wire), 
 
-        .write_buffer_sel            (write_buffer_sel),
-        .write_start                 (write_start),
-        .write_double_buf            (write_double_buf),
-        .write_reset_address_counter (write_reset_addr),
-        .write_done_all              (write_done),
-        .write_tile_done             (write_tile_done),
-        .write_busy                  (write_busy),
+        .write_buffer_sel            (write_buffer_sel_wire),
+        .write_start                 (write_start_wire),
+        .write_double_buf            (write_double_buf_wire),
+        .write_reset_address_counter (write_reset_addr_wire),
+        .write_done_all              (write_done_all_wire),
+        .write_tile_done             (write_tile_done_wire),
+        .write_busy                  (write_busy_wire),
 
-        .sa_valid_in                 (cu_sa_valid_in),
-        .sa_load_weight              (cu_sa_load_weight),
-        .sa_first_iter               (cu_sa_first_iter),
-        .sa_last_tile                (cu_sa_last_tile),
-        .sa_done                     (sa_done),
-        .sa_valid_out                (sa_valid_out)
-        
-        // Softmax and LayerNorm ports removed as they are no longer in the controller module
+        .sa_valid_in                 (sa_valid_in_wire),
+        .sa_load_weight              (sa_load_weight_wire),
+        .sa_first_iter               (sa_first_iter_wire),
+        .sa_last_tile                (sa_last_tile_wire),
+        .sa_done                     (sa_done_wire),
+        .sa_valid_out                (sa_valid_out_wire)
     );
 
     // --- Fetch Logic ---
     fetch_logic_gen u_fetch_logic (
         .clk                   (clk),
         .rst_n                 (rst_n),
-        .start_fetch           (fetch_start),
-        .reset_in_addr_counter (fetch_reset_addr), 
-        .reset_wt_addr_counter (fetch_reset_addr),
-        .Buffer_Select         (fetch_buffer_sel),
-        .Tiles_Control         (fetch_tiles_ctrl),
-        .Double_buffering      (fetch_double_buf),
-        .hold_addr_ptr         (hold_addr_ptr),
+        .start_fetch           (fetch_start_wire),
+        .reset_in_addr_counter (fetch_reset_in_addr_counter_wire), 
+        .reset_wt_addr_counter (fetch_reset_wt_addr_counter_wire),
+        .Buffer_Select         (fetch_buffer_sel_wire),
+        .Tiles_Control         (fetch_tiles_ctrl_wire),
+        .Double_buffering      (fetch_double_buf_wire),
+        .hold_addr_ptr         (fetch_hold_addr_ptr_wire),
+        .stop_counting         (fetch_stop_counting_wire),
         
-        .bram_addr             (fetch_bram_addr),
-        .bram_en               (fetch_bram_en),
-        .fetch_done            (fetch_done)
+        .bram_addr             (fetch_bram_addr_wire),
+        .bram_en               (fetch_bram_en_wire),
+        .fetch_wt_done         (fetch_wt_done_wire),
+        .fetch_in_done         (fetch_in_done_wire),
+        .busy                  (fetch_busy_wire)
     );
 
     // --- Write Logic ---
     write_logic_gen u_write_logic (
         .clk                (clk),
         .rst_n              (rst_n),
-        .start_write        (write_start),
-        .reset_addr_counter (write_reset_addr),
-        .Buffer_Select      (write_buffer_sel),
-        .Double_buffering   (write_double_buf),
+        .start_write        (write_start_wire),
+        .reset_addr_counter (write_reset_addr_wire),
+        .Buffer_Select      (write_buffer_sel_wire),
+        .Double_buffering   (write_double_buf_wire),
+        .sipo_valid_out     (1'b0), // Tied low for QKV processing
+        .sipo_mode          (1'b0), // Tied low for QKV processing
 
-        .bram_addr          (write_bram_addr),
-        .bram_we            (write_bram_we),
-        .write_done         (write_done),
-        .write_tile_done    (write_tile_done),
-        .busy               (write_busy)
+        .bram_addr          (write_bram_addr_wire),
+        .bram_we            (write_bram_we_wire),
+        .write_all_done     (write_done_all_wire),
+        .write_tile_done    (write_tile_done_wire),
+        .busy               (write_busy_wire)
     );
 
-    // --- Q_K_V BRAM (Written ONLY by Hardware Write Logic) ---
-    Q_K_V_Buffer u_qkv_buffer (
-        // Port A (Write) - Controlled by write_logic_gen
+    // --- Q_K_V BRAM ---
+    Q_K_V_buffer u_qkv_buffer (
+        // Port A (Write) - Extracting bits 0 (Q), 1 (K), and 2 (V) from the write enable bus
         .clka   (clk),
-        .ena    (write_bram_we),       
-        .wea    (write_bram_we),       
-        .addra  (write_bram_addr),
-        .dina   (sa_data_out[255:0]), // Computed outputs from Systolic Array
+        .ena    (write_bram_we_wire[0] | write_bram_we_wire[1] | write_bram_we_wire[2]),       
+        .wea    (write_bram_we_wire[0] | write_bram_we_wire[1] | write_bram_we_wire[2]),       
+        .addra  (write_bram_addr_wire),
+        .dina   (sa_data_out_wire[255:0]), 
         
-        // Port B (Read) - Multiplexed between Testbench Read and Fetch Logic
+        // Port B (Read) - Multiplexed between Testbench Read and Fetch Logic bits 3, 4, 5 (Q, K, V read)
         .clkb   (clk),
-        .enb    (tb_read_mode ? tb_qkv_enb   : fetch_bram_en), 
-        .addrb  (tb_read_mode ? tb_qkv_addrb : fetch_bram_addr), 
-        .doutb  (doutb_qkv)       
+        .enb    (tb_read_mode ? tb_qkv_enb   : (fetch_bram_en_wire[3] | fetch_bram_en_wire[4] | fetch_bram_en_wire[5])), 
+        .addrb  (tb_read_mode ? tb_qkv_addrb : fetch_bram_addr_wire), 
+        .doutb  (doutb_qkv_wire)       
     );
 
-    // --- W_B_I BRAM (Written ONLY by Testbench Preloader) ---
+    // --- W_B_I BRAM ---
     W_B_I_Buffer u_wbi_buffer (
         // Port A (Write) - Controlled by TB 
         .clka   (clk),
@@ -192,30 +215,30 @@ module tb_transformer_top();
         .addra  (tb_wbi_addr),
         .dina   (tb_wbi_data),
         
-        // Port B (Read) - Controlled by fetch_logic_gen
+        // Port B (Read) - Extracting bits 0 (W), 1 (B), and 2 (I) from the fetch enable bus
         .clkb   (clk),
-        .enb    (fetch_bram_en),
-        .addrb  (fetch_bram_addr),
-        .doutb  (doutb_wbi)
+        .enb    (fetch_bram_en_wire[0] | fetch_bram_en_wire[1] | fetch_bram_en_wire[2]),
+        .addrb  (fetch_bram_addr_wire),
+        .doutb  (doutb_wbi_wire)
     );
 
     // --- Systolic Array ---
     systolic_top u_systolic (
         .clk             (clk),
         .rst_n           (rst_n),
-        .in_A            (doutb_qkv), // Depends on fetch phase; may need routing/mux if WBI holds initial inputs
-        .weights         (doutb_wbi), 
+        .in_A            (doutb_qkv_wire), 
+        .weights         (doutb_wbi_wire), 
         
-        .valid_in        (reg_sa_valid_in),
-        .load_weight     (reg_sa_load_weight),
+        .valid_in        (reg_sa_valid_in_3),
+        .load_weight     (reg_sa_load_weight_2),
         .first_iteration (reg_sa_first_iter),
         .last_tile       (reg_sa_last_tile),
         
-        .ready           (sa_ready),
-        .busy            (sa_busy),
-        .done            (sa_done),
-        .valid_out       (sa_valid_out),
-        .data_out        (sa_data_out)
+        .ready           (sa_ready_wire),
+        .busy            (sa_busy_wire),
+        .done            (sa_done_wire),
+        .valid_out       (sa_valid_out_wire),
+        .data_out        (sa_data_out_wire)
     );
 
     // =======+++++++++++++++++++++++++++++++++++++++++++++++++++==================================================================
@@ -223,6 +246,7 @@ module tb_transformer_top();
     // =======+++++++++++++++++++++++++++++++++++++++++++++++++++==================================================================
     integer i;
     integer row; // Used for initializing the matrices
+    logic[7:0] k;
 
     reg [255:0] matrix_32x32 [0:31]; 
     reg [255:0] matrix_512x32 [0:511];
@@ -231,7 +255,7 @@ module tb_transformer_top();
     reg [255:0] output_matrix_512x32_V [0:511];
 
     // -------------------------------------------------------------------------
-    // TASK: Write Weight (Loads 32x32 matrix into W_B_I Buffer)
+    // TASK: Write Weight
     // -------------------------------------------------------------------------
     task automatic write_weight(
         input [15:0] start_addr,
@@ -244,15 +268,15 @@ module tb_transformer_top();
             for (w_idx = 0; w_idx < 32; w_idx = w_idx + 1) begin
                 @(posedge clk);
                 tb_wbi_addr = start_addr + w_idx;
-                tb_wbi_data = data_matrix[w_idx]; // Read from the passed array
+                tb_wbi_data = data_matrix[w_idx]; 
             end
             @(posedge clk);
-            tb_wbi_we = 0; // Deassert write enable
+            tb_wbi_we = 0; 
         end
     endtask
 
     // -------------------------------------------------------------------------
-    // TASK: Load Input (Loads 512x32 matrix into W_B_I Buffer)
+    // TASK: Load Input
     // -------------------------------------------------------------------------
     task automatic load_input(
         input [15:0] start_addr,
@@ -265,52 +289,10 @@ module tb_transformer_top();
             for (in_idx = 0; in_idx < 512; in_idx = in_idx + 1) begin
                 @(posedge clk);
                 tb_wbi_addr = start_addr + in_idx;
-                tb_wbi_data = data_matrix[in_idx]; // Read from the passed array
+                tb_wbi_data = data_matrix[in_idx]; 
             end
             @(posedge clk);
-            tb_wbi_we = 0; // Deassert write enable
-        end
-    endtask
-
-    // -------------------------------------------------------------------------
-    // TASK: Read Q_K_V Tile (Reads 512x32 matrix from Q_K_V Buffer)
-    // -------------------------------------------------------------------------
-    task automatic read_qkv_tile(
-        input [15:0] start_addr,
-        ref reg [255:0] read_matrix [0:511]
-    );
-        integer r_idx;
-        begin
-            $display("Task: Reading 512x32 Q_K_V Matrix from address %0d...", start_addr);
-            
-            // 1. Take control of the port
-            tb_read_mode = 1'b1; 
-            tb_qkv_enb   = 1'b1;
-            
-            // 2. Loop 513 times to account for the 1-cycle BRAM latency
-            for (r_idx = 0; r_idx <= 512; r_idx = r_idx + 1) begin
-                
-                // Drive the address (for 0 to 511)
-                if (r_idx < 512) begin
-                    tb_qkv_addrb = start_addr + r_idx;
-                end
-                
-                // Wait for the clock edge
-                @(posedge clk);
-                
-                // Capture the data. Because of 1-cycle latency, data for address 'N' 
-                // is available at loop iteration 'N+1'.
-                if (r_idx > 0) begin
-                    // Small delay to ensure data is perfectly stable after clock edge
-                    #1; 
-                    read_matrix[r_idx - 1] = doutb_qkv;
-                end
-            end
-            
-            // 3. Release control
-            tb_qkv_enb   = 1'b0;
-            tb_read_mode = 1'b0; 
-            $display("Task: Read Complete.");
+            tb_wbi_we = 0; 
         end
     endtask
 
@@ -331,17 +313,25 @@ module tb_transformer_top();
         tb_qkv_addrb    = 0;
         tb_qkv_enb      = 0;
 
-        // first weight input tile.
+        // Populate Matrix Definitions
         for (row = 0; row < 32; row = row + 1) begin
-           matrix_32x32[row] = {32{8'd1}};
+            k = row; 
+           matrix_32x32[row] = {32{k}};
         end
         for (row = 0; row < 512; row = row + 1) begin
-            matrix_512x32[row] = {32{8'd2}};
+            k = row;
+            if (k >= 256) begin
+                k = 6;
+            end
+            matrix_512x32[row] = {32{k+2}};
+            
         end
+        
+        // Load Arrays
         write_weight(16'd0, matrix_32x32);
         write_weight(16'd32, matrix_32x32); // db
-        load_input(16'd64, matrix_512x32);  // db
-        load_input(16'd576, matrix_512x32);
+        load_input(16'd112, matrix_512x32);  // db
+        load_input(16'd624, matrix_512x32);
 
         // the controller will start working here 
         @(posedge clk);
@@ -349,6 +339,10 @@ module tb_transformer_top();
         @(posedge clk);
         start_inference = 0;
 
+        // Give the controller a few clock cycles to transition OUT of IDLE
+        repeat(5) @(posedge clk);
+
+        // Wait until the controller returns to the IDLE state (assuming IDLE is 2'd0)
         wait(u_cu.state == 2'd0);  
         
         dump_qkv_buffer_to_file("qkv_computed_results.txt");
@@ -356,7 +350,7 @@ module tb_transformer_top();
     end
 
     // -------------------------------------------------------------------------
-    // TASK: Dump Q_K_V Buffer to File (Reads the whole buffer to a text file)
+    // TASK: Dump Q_K_V Buffer to File
     // -------------------------------------------------------------------------
     task automatic dump_qkv_buffer_to_file(
         input string filename
@@ -388,12 +382,10 @@ module tb_transformer_top();
                 // Wait for the clock edge
                 @(posedge clk);
                 
-                // Capture the data. Because of 1-cycle latency, data for address 'N' 
-                // is available at loop iteration 'N+1'.
+                // Capture the data.
                 if (r_idx > 0) begin
-                    #1; // Small delay to ensure BRAM data is stable after clock edge
-                    // Write the 256-bit data to the file in Hexadecimal format
-                    $fdisplay(fd, "%h", doutb_qkv);
+                    #1; // Delay to ensure BRAM data is stable after clock edge
+                    $fdisplay(fd, "%h", doutb_qkv_wire);
                 end
             end
             
@@ -405,4 +397,45 @@ module tb_transformer_top();
             $display("Task: Dump Complete. File saved to %s", filename);
         end
     endtask
+
+
+
+
+// =======================================================
+    // Monitor: Dump Systolic Array Weights
+    
+    // 1. Create a normal 2D array in the testbench to hold the probed values
+    wire [7:0] probed_pe_weights [0:31][0:31];
+
+    // 2. Use a genvar loop to map the internal PE weights to our testbench array.
+    // Since genvars are evaluated at compile-time, this is perfectly legal!
+    genvar gr, gc;
+    generate
+        for (gr = 0; gr < 32; gr = gr + 1) begin : probe_row
+            for (gc = 0; gc < 32; gc = gc + 1) begin : probe_col
+                // Map the internal PE weight register to the TB array
+                assign probed_pe_weights[gr][gc] = u_systolic.u_systolic.row_loop[gr].col_loop[gc].pe_inst.weight;
+            end
+        end
+    endgenerate
+
+    // 3. Print the array using standard variables
+    always_comb begin
+        $display("\n==================================================");
+        $display("   SYSTOLIC ARRAY WEIGHT REGISTERS LATCHED");
+        $display("==================================================");
+        
+        // Loop through our mapped testbench array (variable indexing is legal here!)
+        // for (int r = 0; r < 32; r++) begin
+        //     for (int c = 0; c < 32; c++) begin
+        //         $display("PE[%0d][%0d] Weight = %h", r, c, probed_pe_weights[r][c]);
+        //     end
+        // end
+
+         $display("PE[0][0] Weight = %h", u_systolic.u_systolic.row_loop[0].col_loop[0].pe_inst.weight); // 0
+         $display("PE[1][0] Weight = %h", u_systolic.u_systolic.row_loop[1].col_loop[0].pe_inst.weight); // 0
+         $display("PE[2][0] Weight = %h", u_systolic.u_systolic.row_loop[2].col_loop[0].pe_inst.weight); // 0
+         $display("PE[31][0] Weight = %h", u_systolic.u_systolic.row_loop[31].col_loop[0].pe_inst.weight); // 31 
+        $display("==================================================\n");
+    end
 endmodule

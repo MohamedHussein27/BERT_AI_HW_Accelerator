@@ -40,8 +40,8 @@ module systolic #(
     // instantiation of PE's
     genvar ii, jj;
     generate
-        for (ii = 0; ii < N_SIZE; ii = ii + 1) begin // row loop
-            for (jj = 0; jj < N_SIZE; jj = jj + 1) begin // column loop
+        for (ii = 0; ii < N_SIZE; ii = ii + 1) begin: row_loop
+            for (jj = 0; jj < N_SIZE; jj = jj + 1) begin: col_loop
                 PE #(
                     .DATAWIDTH(DATAWIDTH),
                     .DATAWIDTH_output(DATAWIDTH_output))

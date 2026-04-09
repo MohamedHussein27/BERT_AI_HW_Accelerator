@@ -40,11 +40,25 @@ module systolic_controller #(
     logic [ADDR_WIDTH-1:0] rd_addr_reg;
     logic [ADDR_WIDTH-1:0] wr_addr_reg;
 
-
+    // flags 
+    logic forcing_wt;
+    
     // State Register
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) cs <= IDLE;
-        else        cs <= ns;
+        if (!rst_n) begin 
+            cs <= IDLE;
+            forcing_wt <= 1'b1;
+        end
+        else begin
+            cs <= ns;
+
+            if (cs == LOADING_WEIGHT) begin
+                forcing_wt <= 1'b0;
+            end
+            else if (cs == COMPUTE) begin
+                forcing_wt <= 1'b1;
+            end
+        end
     end
 
     // next state logic
@@ -52,7 +66,7 @@ module systolic_controller #(
         ns = cs;
         case (cs)
             IDLE: begin
-                if      (load_weight) ns = LOADING_WEIGHT;
+                if      (load_weight && forcing_wt) ns = LOADING_WEIGHT;
                 else if (valid_in)    ns = COMPUTE;
             end
 
@@ -80,12 +94,12 @@ module systolic_controller #(
         case (cs)
             IDLE: begin
                 sys_wt_en = 1'b0;
-                rd_addr   = (valid_in)? 1 : '0;
-                wr_addr   = '0;
-                we        = 1'b0;
-                done      = 1'b0;
-                busy      = 1'b0;
-                ready     = 1'b1;
+                rd_addr    = (valid_in)? 1 : '0;
+                wr_addr    = '0;
+                we         = 1'b0;
+                done       = 1'b0;
+                busy       = 1'b0;
+                ready      = 1'b1;
             end
 
             LOADING_WEIGHT: begin
@@ -148,7 +162,7 @@ module systolic_controller #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n)
             wt_load_cnt <= '0;
-        else if (cs == LOADING_WEIGHT)
+        else if (ns == LOADING_WEIGHT)
             wt_load_cnt <= wt_load_cnt + 1'b1;
         else
             wt_load_cnt <= '0;
