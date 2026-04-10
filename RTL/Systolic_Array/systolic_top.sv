@@ -2,7 +2,6 @@
 // the fetch logic should provide zero input for N-1 cycles (with high valid in) so that we can drain the systolic
 // last tile indicates if this systolic operation will produce a final tile result not partial sums
 // so that this tile will be stored in a didcated buffer not the feedback buffer.
-// the systolic array needs input of zeroes if there is no partial sums yet
 
 module systolic_top #(
     parameter DATAWIDTH = 8,
@@ -16,21 +15,24 @@ module systolic_top #(
     input  logic signed [BUS_WIDTH-1:0] weights,
     input  logic clk,
     input  logic rst_n,
+    input  logic controller_rst_n,
     input  logic valid_in,
     input  logic load_weight,
     input  logic last_tile,
     input  logic first_iteration, 
+    input  logic zero_in,
     // Status signals
     output logic ready,
     output logic busy,
     output logic done,
     output logic valid_out,
+    output logic pre_valid_out,
 
-    output logic signed [(DATAWIDTH_output*N_SIZE)-1:0] data_out // this is the output of the systolic buffer
+    output logic signed [N_SIZE-1:0][DATAWIDTH_output-1:0] data_out // this is the output of the systolic buffer
 );
 // internal wires 
     logic sys_wt_en;
-    logic we, we_outbuffer_wire;
+    logic we;
     logic [ADDR_WIDTH-1:0] rd_addr;
     logic [ADDR_WIDTH-1:0] wr_addr;
     logic [$clog2(N_SIZE)-1:0] wt_row_sel;
@@ -51,7 +53,7 @@ module systolic_top #(
     genvar i, j, k, p, f;
     generate
         for (i = 0; i < N_SIZE; i = i + 1 ) begin
-            assign in_A_wire[i] = in_A[i*DATAWIDTH +: DATAWIDTH];
+            assign in_A_wire[i] = (!zero_in)? in_A[i*DATAWIDTH +: DATAWIDTH] : '0;
         end
 
         for (j = 0; j < N_SIZE; j = j + 1 ) begin
@@ -63,7 +65,7 @@ module systolic_top #(
         end      
 
         for (f = 0; f < N_SIZE; f = f + 1 ) begin
-            assign data_out[f*DATAWIDTH_output +: DATAWIDTH_output] = deskew_out_wire[f];
+            assign data_out[f] = deskew_out_wire[f];
         end 
 
         for (p = 0; p < N_SIZE; p = p + 1 ) begin
@@ -80,7 +82,7 @@ module systolic_top #(
         .ADDR_WIDTH(ADDR_WIDTH)
     ) contoller (
         .clk(clk),
-        .rst_n(rst_n),
+        .controller_rst_n(controller_rst_n),
         .valid_in(valid_in),
         .load_weight(load_weight),
         .last_tile(last_tile),
@@ -92,7 +94,8 @@ module systolic_top #(
         .valid_out(valid_out),
         .ready(ready),
         .busy(busy),
-        .done(done)
+        .done(done),
+        .pre_valid_out(pre_valid_out)
     );
     // skew like input 
     skew_buffer #(
@@ -100,7 +103,7 @@ module systolic_top #(
         .N_SIZE(N_SIZE)
     ) u_skew_buffer (
         .clk      (clk),
-        .rst_n    (rst_n),
+        .rst_n    (controller_rst_n),
         .valid_in (valid_in),
         .in_A     (in_A_wire),
         .out      (skew_out_wire)
