@@ -72,6 +72,11 @@ module transformer_master_ctrl (
     input  logic       softmax_out_last,
 
     // ========================================================
+    // 3. Softmax Interface
+    // ========================================================
+    output logic        quantize_valid_in,
+
+    // ========================================================
     // 4. LayerNorm Interface
     // ========================================================
     // Note: LayerNorm math is triggered by data flowing from fetch logic.
@@ -242,10 +247,10 @@ module transformer_master_ctrl (
         end
 
 
-        if (state == WRITING_Q_Kt)
+        /*if (state == WRITING_Q_Kt)
             fetch_stop_counting <= 1;
         else 
-            fetch_stop_counting <= 0;
+            fetch_stop_counting <= 0;*/
 
     end
 
@@ -319,6 +324,8 @@ module transformer_master_ctrl (
             //FETCHING_SM: we can handle it using sipo writing in write logic
 
             FETCHING_V:
+                        begin
+                            
 
             WRITING_SV:
 
@@ -389,8 +396,14 @@ module transformer_master_ctrl (
         sa_last_tile     = 1'b0;
         //first_sa_time    = 1'b1;
 
+        // quantization
+        quantize_valid_in = 0;
+
         // softmax
         softmax_start    = 1'b0;
+
+        // softmax serializers
+        fetch_stop_counting = 0;
 
         case (state)
             // ----------------------------------------------------
@@ -464,14 +477,17 @@ module transformer_master_ctrl (
                 
                 
             WAIT_PISO: begin
-
+                quantize_valid_in = 1;
+                fetch_stop_counting = 1;
+            end
             
-            WAIT_SOFTMAX:
+            WAIT_SOFTMAX: begin
+                
+            end
 
-            
 
 
-            WAIT_PISO: begin
+            WAIT_SIPO: begin
                 softmax_out_in = 1;
                 write_sipo_mode = 1;
             end
