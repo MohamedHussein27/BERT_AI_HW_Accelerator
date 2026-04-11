@@ -73,14 +73,14 @@ def pla_softmax(scores: np.ndarray):
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # GCU — GELU COMPUTE UNIT
-# Matches new training script exactly:
-#   EU1, DU, EU2 three-stage pipeline
+# Matches training script exactly:
+#   EU1 → DU → EU2 three-stage pipeline
 #   PolynomialUnit: s(x) = -2*log2(e)*sqrt(2/pi) * (x + 0.044715*x^3)
 #   ExponentialUnit: precise log2(e), asymmetric barrel shifter
 #   DivisionUnit: returns (exponent, sign); EU2 applied outside
 
 # ── ExponentialUnit LUT ───────────────────────────────────────────────────────
-_LOG2E = math.log2(math.e)   # 1.4426950408889634  (precise, matches new script)
+_LOG2E = math.log2(math.e)   # 1.4426950408889634  (precise, matches training)
 
 def _build_exp_coeffs(num_segments=8):
     coeffs = []
@@ -96,10 +96,11 @@ _EXP_COEFFS = _build_exp_coeffs()
 
 def _exp_unit(x: np.ndarray, use_log2e: bool = True) -> np.ndarray:
     """
-    Port of ExponentialUnit.forward() — new version.
+    Port of ExponentialUnit.forward().
     Asymmetric barrel shifter: positive int -> left shift (multiply),
                                negative int -> right shift (divide).
     Precise log2(e) = 1.4426950408889634.
+    Output is in Q48.16 format.
     """
     x = x.astype(np.float64)
     if use_log2e:
@@ -110,13 +111,13 @@ def _exp_unit(x: np.ndarray, use_log2e: bool = True) -> np.ndarray:
     K = _EXP_COEFFS[seg, 0];  B = _EXP_COEFFS[seg, 1]
     mantissa = K * x_frac + B
 
-    # Asymmetric barrel shifter — matches new training script
+    # Asymmetric barrel shifter — matches training script
     result = np.where(
         x_int >= 0,
-        mantissa * (2.0 ** np.clip(x_int,  0, 15).astype(np.float64)),   # left shift
+        mantissa * (2.0 ** np.clip( x_int, 0, 15).astype(np.float64)),   # left shift
         mantissa / (2.0 ** np.clip(-x_int, 0, 15).astype(np.float64))    # right shift
     )
-    return result
+    return result   # Q48.16
 
 
 def _leading_one(x: np.ndarray):
@@ -131,9 +132,9 @@ _DU_Q = 16   # fractional bits for Q48.16
 
 def _div_unit(num: np.ndarray, den: np.ndarray, add_one: bool = False):
     """
-    Port of DivisionUnit.forward() — new version.
-    Returns (exponent, sign) tuple — EU2 is applied by the caller (GCU).
-    s_i = (w_i - Q)  (not shifted, just float difference)
+    Port of DivisionUnit.forward().
+    Returns (exponent, sign) — EU2 is applied by the caller (gcu).
+    s_i = (w_i - Q)
     exponent = (m1 + s1) - (m2 + s2)
     """
     if add_one:
@@ -149,14 +150,15 @@ def _div_unit(num: np.ndarray, den: np.ndarray, add_one: bool = False):
 
 def gcu(x: np.ndarray) -> np.ndarray:
     """
-    Port of GCU.forward() — new three-stage pipeline:
-      Stage 1: PolynomialUnit  → s(x)
-      Stage 2: EU1             → exp(s(x))
-      Stage 3: DU              → exponent, sign
-      Stage 4: EU2             → result = EU2(exponent) * sign
+    Port of GCU.forward() — EU1 → DU → EU2 pipeline.
 
-    PolynomialUnit:
-      s(x) = -2*log2(e)*sqrt(2/pi) * (x + 0.044715*x^3)
+    Input:  Q10.22  (enforced by caller before calling gcu)
+    Output: Q48.16  (EU2 output; caller snaps to Q48.16 grid then to INT8)
+
+    Stage 1: PolynomialUnit  → s(x) = -2*log2(e)*sqrt(2/pi)*(x + 0.044715*x^3)
+    Stage 2: EU1             → exp(s(x))   [no log2e rescaling]
+    Stage 3: DU              → exponent, sign
+    Stage 4: EU2             → 2^exponent * sign   [Q48.16]
     """
     x = x.astype(np.float64)
 
@@ -173,7 +175,7 @@ def gcu(x: np.ndarray) -> np.ndarray:
 
     # Stage 4 — EU2: apply exponential to exponent
     result = _exp_unit(exponent, use_log2e=False) * sign
-    return result
+    return result   # Q48.16
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -206,7 +208,7 @@ def quantized_linear(x: np.ndarray, W_f: np.ndarray,
     Port of QuantizedLinear.forward():
       fake_quant(input) @ fake_quant(weight).T + bias
     W_f already on INT8 grid; fake_quant is near no-op.
-    b_f is plain float (INT32 * bias_scale).
+    b_f is plain float (INT8 * bias_scale, already dequantized by load_bias_f).
     """
     x_fq,  _ = fake_quant(x)
     W_fq,  _ = fake_quant(W_f)
@@ -255,14 +257,13 @@ class AttentionBlock:
         if mask is not None:
             scores = scores + mask
 
-        # ── NEW: Quantize QKt scores to INT8 before softmax
-        # Matches training: attn_scores_int8 = Quantize.apply(attn_scores)
+        # Quantize QKt scores to INT8 before softmax
         scores_fq, _ = fake_quant(scores)
 
-        # ── PLASoftmax: receives INT8-grid scores
+        # PLASoftmax: receives INT8-grid scores
         attn_probs, _ = pla_softmax(scores_fq)
 
-        # ── V: Quantize.apply once on entire v_full, then tiled matmul
+        # Quantize.apply once on entire v_full, then tiled matmul
         v_fq, _ = fake_quant(v_full)
         D       = self.head_dim
         ctx     = np.zeros((B, H, S, D), np.float64)
@@ -293,16 +294,14 @@ class FFNBlock:
         for i in range(0, S, T):
             out1[:, i:i+T, :] = quantized_linear(x[:, i:i+T, :], self.W1, self.b1)
 
-        # ── NEW: Quantize ffn1 output to INT8 intermediate buffer
-        # Matches training: out1_int8 = Quantize.apply(out1)
+        # Quantize ffn1 output → INT8 intermediate buffer
         out1_int8, _ = fake_quant(out1)
 
-        # ── Dequant INT8 buffer → Q10.22 → GCU → Q48.16 → INT8
-        # Matches training: out1_q10_22 = to_fixed_point(out1_int8, 32, 22)
-        out1_q10_22 = to_fixed(out1_int8, 32, 22)
-        gcu_out     = gcu(out1_q10_22)
-        gcu_q48_16  = to_fixed(gcu_out, 64, 16)                  # Q48.16
-        x_mid, _    = fake_quant(gcu_q48_16)                     # Q48.16 → INT8
+        # De-quant INT8 → Q10.22 → GCU (input Q10.22) → output Q48.16 → INT8
+        out1_q10_22 = to_fixed(out1_int8, 32, 22)          # Q10.22
+        gcu_out     = gcu(out1_q10_22)                       # Q48.16
+        gcu_q48_16  = to_fixed(gcu_out, 64, 16)             # snap to Q48.16 grid
+        x_mid, _    = fake_quant(gcu_q48_16)                # Q48.16 → INT8
 
         # ── ffn2 GeMM
         out2 = np.zeros((B, S, self.W2.shape[0]), np.float64)
@@ -378,10 +377,15 @@ class HardwareBERT:
                     else raw.astype(np.float32))
 
         def load_bias_f(k):
+            """
+            Biases are now stored as INT8 (training script changed from INT32 → INT8).
+            Dequantize: float = int8 * bias_scale   where bias_scale = input_scale × weight_scale.
+            """
             raw = get(k)
             if raw is None: return None
             sc = b_scale(k)
-            return (raw.astype(np.float64) * sc if raw.dtype == np.int32
+            # ── INT8 bias (matches training: clip(-128, 127).astype(np.int8)) ──
+            return (raw.astype(np.float64) * sc if raw.dtype == np.int8
                     else raw.astype(np.float64))
 
         def load_emb_f(k):
@@ -481,6 +485,7 @@ def estimate_accuracy(npz_path: str, num_samples: int = 872):
     print("\n" + "="*60)
     print("  HARDWARE-FAITHFUL INT8 BERT  --  SST-2 VALIDATION")
     print("  New GCU (EU1+DU+EU2) | INT8 QKt buffer | INT8 FFN1 buffer")
+    print("  INT8 biases  (bias_scale = input_scale × weight_scale)")
     print("="*60)
 
     model = HardwareBERT()
@@ -511,21 +516,21 @@ def estimate_accuracy(npz_path: str, num_samples: int = 872):
     return acc
 
 
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # ACTIVATION RECORDER
 #
 # Records full activation matrices before/after every PDF block.
-# Updated for new training script:
+# Aligned with training script:
 #   - QKt scores quantized to INT8 buffer before Q5.26 snap + softmax
 #   - FFN1 output quantized to INT8 buffer before Q10.22 + GCU
-#   - LN inputs snapped to Q5.26 before LayerNorm (matches PDF hardware flow)
-#   - GCU uses new EU1->DU->EU2 pipeline (via updated gcu() function)
+#   - GCU: Q10.22 input → EU1 → DU → EU2 → Q48.16 output
+#   - LN inputs snapped to Q5.26 before LayerNorm
+#   - Biases are INT8: re-quantize with clip(-128, 127) in recorder
+#     bias_scale = input_scale × weight_scale  (same as training)
 #
 # Saved dtypes:
 #   INT8   — any node output after quantize  (+ companion _scale float32 key)
-#   INT32  — GeMM accumulators and after-bias
+#   INT32  — GeMM accumulators (after bias addition the result is still INT32)
 #   float32— fixed-point registers and LN domain values
 
 def record_activations(npz_path: str,
@@ -545,6 +550,7 @@ def record_activations(npz_path: str,
     print("\n" + "="*60)
     print("  ACTIVATION RECORDER  (hardware-accurate dtypes)")
     print(f"  Samples: {n_samples}  |  Layers: 12  |  INT8/INT32/float32")
+    print("  Bias format: INT8  (bias_scale = input_scale × weight_scale)")
     print("="*60)
 
     model = HardwareBERT()
@@ -585,6 +591,18 @@ def record_activations(npz_path: str,
         store[key] = a
         index[key] = f"float32 | {desc}"
 
+    # ── helper: re-quantize a dequantized bias back to INT8 for the recorder ──
+    # bias_scale = input_scale × weight_scale  (matches training script)
+    # The accumulator (INT32) receives the INT8 bias widened to int32.
+    def bias_to_i8(bias_f, input_sc, weight_sc):
+        """
+        Converts the dequantized float bias back to INT8 using the same
+        bias_scale used during training:  bias_scale = input_sc * weight_sc.
+        Returns int8 array (widened to int32 for accumulator addition).
+        """
+        bias_scale = float(input_sc) * float(weight_sc)
+        return np.round(bias_f / bias_scale).clip(-128, 127).astype(np.int8)
+
     T = 32
 
     for si in range(n_samples):
@@ -621,24 +639,24 @@ def record_activations(npz_path: str,
                 f"s{si} l{li} | INPUT_QUANT after  | x_i8 | ({S},{x_fq.shape[-1]})")
 
             x_i8_raw  = to_int8_arr(x_fq,  x_sc)
-            Wq_i8_raw = to_int8_arr(a.Wq,  fake_quant(a.Wq)[1])
-            Wk_i8_raw = to_int8_arr(a.Wk,  fake_quant(a.Wk)[1])
-            Wv_i8_raw = to_int8_arr(a.Wv,  fake_quant(a.Wv)[1])
-            Wo_i8_raw = to_int8_arr(a.Wo,  fake_quant(a.Wo)[1])
+            Wq_fq, Wq_sc = fake_quant(a.Wq); Wq_i8_raw = to_int8_arr(Wq_fq, Wq_sc)
+            Wk_fq, Wk_sc = fake_quant(a.Wk); Wk_i8_raw = to_int8_arr(Wk_fq, Wk_sc)
+            Wv_fq, Wv_sc = fake_quant(a.Wv); Wv_i8_raw = to_int8_arr(Wv_fq, Wv_sc)
+            Wo_fq, Wo_sc = fake_quant(a.Wo); Wo_i8_raw = to_int8_arr(Wo_fq, Wo_sc)
 
             # ── Q PROJECTION ──────────────────────────────────────────────
             q_acc_i32 = int8_matmul_i32(x_i8_raw[0], Wq_i8_raw)
             save_i32(f"{p}_q_proj_after_gemm", q_acc_i32,
                 f"s{si} l{li} | Q_PROJ after_gemm | INT32 = x_i8 @ Wq.T | ({S},{q_acc_i32.shape[-1]})")
             if a.bq is not None:
-                bq_sc      = float(x_sc) * float(fake_quant(a.Wq)[1])
-                bq_i32     = np.round(a.bq / bq_sc).clip(-2147483648, 2147483647).astype(np.int32)
-                q_bias_i32 = q_acc_i32 + bq_i32
+                # bias is INT8; widen to int32 for accumulator addition
+                bq_i8      = bias_to_i8(a.bq, x_sc, Wq_sc)
+                q_bias_i32 = q_acc_i32 + bq_i8.astype(np.int32)
                 save_i32(f"{p}_q_proj_after_bias", q_bias_i32,
-                    f"s{si} l{li} | Q_PROJ after_bias  | INT32 + bias_i32 | ({S},{q_bias_i32.shape[-1]})")
+                    f"s{si} l{li} | Q_PROJ after_bias  | INT32 + bias_i8 (widened) | ({S},{q_bias_i32.shape[-1]})")
             else:
                 q_bias_i32 = q_acc_i32
-            q_sc_combined = float(x_sc) * float(fake_quant(a.Wq)[1])
+            q_sc_combined = float(x_sc) * float(Wq_sc)
             q_dequant     = q_bias_i32.astype(np.float64) * q_sc_combined
             q_fq, q_sc    = fake_quant(q_dequant[np.newaxis])
             save_i8(f"{p}_q_proj_after_quant", q_fq, q_sc,
@@ -649,14 +667,13 @@ def record_activations(npz_path: str,
             save_i32(f"{p}_k_proj_after_gemm", k_acc_i32,
                 f"s{si} l{li} | K_PROJ after_gemm | INT32 = x_i8 @ Wk.T | ({S},{k_acc_i32.shape[-1]})")
             if a.bk is not None:
-                bk_sc      = float(x_sc) * float(fake_quant(a.Wk)[1])
-                bk_i32     = np.round(a.bk / bk_sc).clip(-2147483648, 2147483647).astype(np.int32)
-                k_bias_i32 = k_acc_i32 + bk_i32
+                bk_i8      = bias_to_i8(a.bk, x_sc, Wk_sc)
+                k_bias_i32 = k_acc_i32 + bk_i8.astype(np.int32)
                 save_i32(f"{p}_k_proj_after_bias", k_bias_i32,
-                    f"s{si} l{li} | K_PROJ after_bias  | INT32 + bias_i32 | ({S},{k_bias_i32.shape[-1]})")
+                    f"s{si} l{li} | K_PROJ after_bias  | INT32 + bias_i8 (widened) | ({S},{k_bias_i32.shape[-1]})")
             else:
                 k_bias_i32 = k_acc_i32
-            k_sc_combined = float(x_sc) * float(fake_quant(a.Wk)[1])
+            k_sc_combined = float(x_sc) * float(Wk_sc)
             k_dequant     = k_bias_i32.astype(np.float64) * k_sc_combined
             k_fq, k_sc    = fake_quant(k_dequant[np.newaxis])
             save_i8(f"{p}_k_proj_after_quant", k_fq, k_sc,
@@ -667,14 +684,13 @@ def record_activations(npz_path: str,
             save_i32(f"{p}_v_proj_after_gemm", v_acc_i32,
                 f"s{si} l{li} | V_PROJ after_gemm | INT32 = x_i8 @ Wv.T | ({S},{v_acc_i32.shape[-1]})")
             if a.bv is not None:
-                bv_sc      = float(x_sc) * float(fake_quant(a.Wv)[1])
-                bv_i32     = np.round(a.bv / bv_sc).clip(-2147483648, 2147483647).astype(np.int32)
-                v_bias_i32 = v_acc_i32 + bv_i32
+                bv_i8      = bias_to_i8(a.bv, x_sc, Wv_sc)
+                v_bias_i32 = v_acc_i32 + bv_i8.astype(np.int32)
                 save_i32(f"{p}_v_proj_after_bias", v_bias_i32,
-                    f"s{si} l{li} | V_PROJ after_bias  | INT32 + bias_i32 | ({S},{v_bias_i32.shape[-1]})")
+                    f"s{si} l{li} | V_PROJ after_bias  | INT32 + bias_i8 (widened) | ({S},{v_bias_i32.shape[-1]})")
             else:
                 v_bias_i32 = v_acc_i32
-            v_sc_combined = float(x_sc) * float(fake_quant(a.Wv)[1])
+            v_sc_combined = float(x_sc) * float(Wv_sc)
             v_dequant     = v_bias_i32.astype(np.float64) * v_sc_combined
             v_fq, v_sc_q  = fake_quant(v_dequant[np.newaxis])
             save_i8(f"{p}_v_proj_after_quant", v_fq, v_sc_q,
@@ -697,12 +713,12 @@ def record_activations(npz_path: str,
             if mask is not None:
                 scores_f = scores_f + mask[0]
 
-            # NEW: quantize scores to INT8 buffer before softmax
+            # Quantize scores → INT8 buffer before softmax
             scores_fq, scores_buf_sc = fake_quant(scores_f)
             save_i8(f"{p}_qkt_after_quant", scores_fq, scores_buf_sc,
                 f"s{si} l{li} | QKT_GEMM after_quant | INT8 buffer before softmax | ({H},{S},{S})")
 
-            # dequant INT8 buffer → Q5.26 → softmax input
+            # De-quant INT8 buffer → Q5.26 → softmax input
             mx      = scores_fq.max(axis=-1, keepdims=True)
             shifted = to_fixed(scores_fq - mx, 32, 26)
             save_f32(f"{p}_qkt_after_q5_26", shifted,
@@ -737,14 +753,13 @@ def record_activations(npz_path: str,
             save_i32(f"{p}_wo_proj_after_gemm", wo_acc_i32,
                 f"s{si} l{li} | WO_PROJ after_gemm | INT32 = ctx_i8 @ Wo.T | ({S},{wo_acc_i32.shape[-1]})")
             if a.bo is not None:
-                bo_sc      = float(ctx_sc) * float(fake_quant(a.Wo)[1])
-                bo_i32     = np.round(a.bo / bo_sc).clip(-2147483648, 2147483647).astype(np.int32)
-                wo_bias_i32 = wo_acc_i32 + bo_i32
+                bo_i8       = bias_to_i8(a.bo, ctx_sc, Wo_sc)
+                wo_bias_i32 = wo_acc_i32 + bo_i8.astype(np.int32)
                 save_i32(f"{p}_wo_proj_after_bias", wo_bias_i32,
-                    f"s{si} l{li} | WO_PROJ after_bias  | INT32 + bias_i32 | ({S},{wo_bias_i32.shape[-1]})")
+                    f"s{si} l{li} | WO_PROJ after_bias  | INT32 + bias_i8 (widened) | ({S},{wo_bias_i32.shape[-1]})")
             else:
                 wo_bias_i32 = wo_acc_i32
-            wo_sc_combined = float(ctx_sc) * float(fake_quant(a.Wo)[1])
+            wo_sc_combined = float(ctx_sc) * float(Wo_sc)
             wo_dequant     = wo_bias_i32.astype(np.float64) * wo_sc_combined
             wo_fq, wo_sc   = fake_quant(wo_dequant[np.newaxis])
             save_i8(f"{p}_wo_proj_after_quant", wo_fq, wo_sc,
@@ -757,7 +772,6 @@ def record_activations(npz_path: str,
             wo_res_i8 = to_int8_arr(wo_res_fq, wo_res_sc)
             res1_f    = (x_res_i8.astype(np.float64) * float(x_res_sc) +
                          wo_res_i8.astype(np.float64) * float(wo_res_sc))
-            # Q5.26 snap before LN (matches new training script)
             res1_q5_26 = to_fixed(res1_f, 32, 26)
             save_f32(f"{p}_resadd1_ln1_input", res1_q5_26,
                 f"s{si} l{li} | RESADD1_LN1 input | TRUE LN1 INPUT Q5.26 (x_i8*sc + wo_i8*sc) | ({S},{res1_q5_26.shape[-1]})")
@@ -770,36 +784,36 @@ def record_activations(npz_path: str,
 
             # ── FFN1 GeMM ─────────────────────────────────────────────────
             x1_i8_raw    = to_int8_arr(x1_fq, x1_sc)[0]
-            W1_fq, W1_sc = fake_quant(ff.W1)
-            W1_i8_raw    = to_int8_arr(W1_fq, W1_sc)
+            W1_fq, W1_sc = fake_quant(ff.W1); W1_i8_raw = to_int8_arr(W1_fq, W1_sc)
             ffn1_acc_i32 = int8_matmul_i32(x1_i8_raw, W1_i8_raw)
             save_i32(f"{p}_ffn1_gemm_after_gemm", ffn1_acc_i32,
                 f"s{si} l{li} | FFN1_GEMM after_gemm | INT32 = x_i8 @ W1.T | ({S},{ffn1_acc_i32.shape[-1]})")
             if ff.b1 is not None:
-                b1_sc_combined = float(x1_sc) * float(W1_sc)
-                b1_i32         = np.round(ff.b1 / b1_sc_combined).clip(-2147483648, 2147483647).astype(np.int32)
-                ffn1_bias_i32  = ffn1_acc_i32 + b1_i32
+                b1_i8         = bias_to_i8(ff.b1, x1_sc, W1_sc)
+                ffn1_bias_i32 = ffn1_acc_i32 + b1_i8.astype(np.int32)
                 save_i32(f"{p}_ffn1_gemm_after_bias", ffn1_bias_i32,
-                    f"s{si} l{li} | FFN1_GEMM after_bias | INT32 + bias_i32 | ({S},{ffn1_bias_i32.shape[-1]})")
+                    f"s{si} l{li} | FFN1_GEMM after_bias | INT32 + bias_i8 (widened) | ({S},{ffn1_bias_i32.shape[-1]})")
             else:
                 ffn1_bias_i32 = ffn1_acc_i32
             ffn1_sc_combined = float(x1_sc) * float(W1_sc)
             ffn1_dequant     = ffn1_bias_i32.astype(np.float64) * ffn1_sc_combined
 
-            # NEW: INT8 intermediate buffer after ffn1 before GCU
+            # INT8 intermediate buffer after ffn1 before GCU
             ffn1_buf_fq, ffn1_buf_sc = fake_quant(ffn1_dequant[np.newaxis])
             save_i8(f"{p}_ffn1_gemm_after_quant", ffn1_buf_fq, ffn1_buf_sc,
                 f"s{si} l{li} | FFN1_GEMM after_quant | INT8 buffer before GCU | ({S},{ffn1_buf_fq.shape[-1]})")
 
-            # dequant INT8 buffer → Q10.22 → GCU input
+            # De-quant INT8 → Q10.22 → GCU input
             ffn1_q10_22 = to_fixed(ffn1_buf_fq, 32, 22)
-            save_f32(f"{p}_ffn1_gemm_after_q10_22", ffn1_q10_22[0] if ffn1_q10_22.ndim > 2 else ffn1_q10_22,
+            save_f32(f"{p}_ffn1_gemm_after_q10_22",
+                     ffn1_q10_22[0] if ffn1_q10_22.ndim > 2 else ffn1_q10_22,
                 f"s{si} l{li} | FFN1_GEMM after_q10_22 | Q10.22 GCU input | ({S},{ffn1_q10_22.shape[-1]})")
 
-            # ── GCU (new EU1->DU->EU2 pipeline via updated gcu()) ─────────
+            # ── GCU (EU1 → DU → EU2 pipeline): Q10.22 input → Q48.16 output ──
             gcu_out    = gcu(ffn1_q10_22)
             gcu_q48_16 = to_fixed(gcu_out, 64, 16)
-            save_f32(f"{p}_gcu_after_q48_16", gcu_q48_16[0] if gcu_q48_16.ndim > 2 else gcu_q48_16,
+            save_f32(f"{p}_gcu_after_q48_16",
+                     gcu_q48_16[0] if gcu_q48_16.ndim > 2 else gcu_q48_16,
                 f"s{si} l{li} | GCU after_q48_16 | TRUE GCU OUTPUT Q48.16 | ({S},{gcu_q48_16.shape[-1]})")
             mid_fq, mid_sc = fake_quant(gcu_q48_16)
             save_i8(f"{p}_gcu_after_quant", mid_fq, mid_sc,
@@ -807,17 +821,15 @@ def record_activations(npz_path: str,
 
             # ── FFN2 GeMM ─────────────────────────────────────────────────
             mid_i8_raw   = to_int8_arr(mid_fq, mid_sc)[0]
-            W2_fq, W2_sc = fake_quant(ff.W2)
-            W2_i8_raw    = to_int8_arr(W2_fq, W2_sc)
+            W2_fq, W2_sc = fake_quant(ff.W2); W2_i8_raw = to_int8_arr(W2_fq, W2_sc)
             ffn2_acc_i32 = int8_matmul_i32(mid_i8_raw, W2_i8_raw)
             save_i32(f"{p}_ffn2_gemm_after_gemm", ffn2_acc_i32,
                 f"s{si} l{li} | FFN2_GEMM after_gemm | INT32 = mid_i8 @ W2.T | ({S},{ffn2_acc_i32.shape[-1]})")
             if ff.b2 is not None:
-                b2_sc_combined = float(mid_sc) * float(W2_sc)
-                b2_i32         = np.round(ff.b2 / b2_sc_combined).clip(-2147483648, 2147483647).astype(np.int32)
-                ffn2_bias_i32  = ffn2_acc_i32 + b2_i32
+                b2_i8         = bias_to_i8(ff.b2, mid_sc, W2_sc)
+                ffn2_bias_i32 = ffn2_acc_i32 + b2_i8.astype(np.int32)
                 save_i32(f"{p}_ffn2_gemm_after_bias", ffn2_bias_i32,
-                    f"s{si} l{li} | FFN2_GEMM after_bias | INT32 + bias_i32 | ({S},{ffn2_bias_i32.shape[-1]})")
+                    f"s{si} l{li} | FFN2_GEMM after_bias | INT32 + bias_i8 (widened) | ({S},{ffn2_bias_i32.shape[-1]})")
             else:
                 ffn2_bias_i32 = ffn2_acc_i32
             ffn2_sc_combined = float(mid_sc) * float(W2_sc)
@@ -833,7 +845,6 @@ def record_activations(npz_path: str,
             ffn2_res_i8 = to_int8_arr(ffn2_res_fq, ffn2_res_sc)
             res2_f      = (x1_res_i8.astype(np.float64)  * float(x1_res_sc2) +
                            ffn2_res_i8.astype(np.float64) * float(ffn2_res_sc))
-            # Q5.26 snap before LN (matches new training script)
             res2_q5_26  = to_fixed(res2_f, 32, 26)
             save_f32(f"{p}_resadd2_ln2_input", res2_q5_26,
                 f"s{si} l{li} | RESADD2_LN2 input | TRUE LN2 INPUT Q5.26 (x_i8*sc + ffn2_i8*sc) | ({S},{res2_q5_26.shape[-1]})")
@@ -860,8 +871,9 @@ def record_activations(npz_path: str,
         f.write("  ACTIVATION RECORDER - INDEX\n")
         f.write(f"  Tensors : {len(index)}   Samples : {n_samples}   Layers : 12\n")
         f.write("  INT8  keys have a companion _scale key (float32)\n")
-        f.write("  INT32 keys are raw GeMM accumulators\n")
+        f.write("  INT32 keys are raw GeMM accumulators (bias added as INT8 widened to INT32)\n")
         f.write("  float32 keys are dequant/fixed-point domain values\n")
+        f.write("  Bias format: INT8  (bias_scale = input_scale x weight_scale)\n")
         f.write("=" * 78 + "\n\n")
         f.write("  LOAD:\n")
         f.write("    data    = np.load('activations.npz')\n")
