@@ -9,10 +9,8 @@ from pathlib import Path
 def fake_quant(x: np.ndarray):
     """
     Per-tensor fake-quantization.
-    Port of Quantize.forward():
-      scale = max(|x|) / 127
-      return clip(round(x/scale), -127, 127) * scale   ← stays float64
-    Returns (quantized_float64, float32_scale).
+    scale = max(|x|) / 127
+    return clip(round(x/scale), -127, 127) * scale  (stays float64)
     """
     x    = x.astype(np.float64)
     amax = float(np.abs(x).max())
@@ -22,7 +20,7 @@ def fake_quant(x: np.ndarray):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FIXED-POINT  (port of to_fixed_point)
+# FIXED-POINT
 
 def to_fixed(x: np.ndarray, bits: int, frac_bits: int) -> np.ndarray:
     scale = 2.0 ** frac_bits
@@ -37,7 +35,7 @@ def to_fixed(x: np.ndarray, bits: int, frac_bits: int) -> np.ndarray:
 def _build_pla():
     xs        = np.linspace(-10.0, 0.0, 1001)
     ys        = np.exp(xs)
-    intervals = np.linspace(-10.0, 0.0, 13)   # 12 intervals → 13 boundaries
+    intervals = np.linspace(-10.0, 0.0, 13)
     ms, cs, as_ = [], [], []
     for i in range(12):
         a, b   = intervals[i], intervals[i + 1]
@@ -60,19 +58,29 @@ def _pla_exp(x: np.ndarray) -> np.ndarray:
 
 def pla_softmax(scores: np.ndarray):
     """
-    Exact port of PLASoftmax.forward():
-      max-subtract → Q5.26 → pla_exp → / sum → Quantize.apply
+    Port of PLASoftmax.forward():
+      max-subtract → Q5.26 → pla_exp → / sum → fake_quant
+    Input is already INT8-grid (quantized QKt scores).
     Returns (float64_on_int8_grid, scale).
     """
     mx      = scores.max(axis=-1, keepdims=True)
-    shifted = to_fixed(scores - mx, 32, 26)      # Q5.26
+    shifted = to_fixed(scores - mx, 32, 26)       # Q5.26
     exps    = _pla_exp(shifted)
     probs   = exps / (exps.sum(axis=-1, keepdims=True) + 1e-9)
-    return fake_quant(probs)                      # Quantize.apply inside PLASoftmax
+    softmax_q1_15 = to_fixed(probs, 16, 15)       # Q1.15 intermediate
+    return fake_quant(softmax_q1_15)               # Q1.15 → INT8
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # GCU — GELU COMPUTE UNIT
+# Matches new training script exactly:
+#   EU1, DU, EU2 three-stage pipeline
+#   PolynomialUnit: s(x) = -2*log2(e)*sqrt(2/pi) * (x + 0.044715*x^3)
+#   ExponentialUnit: precise log2(e), asymmetric barrel shifter
+#   DivisionUnit: returns (exponent, sign); EU2 applied outside
+
+# ── ExponentialUnit LUT ───────────────────────────────────────────────────────
+_LOG2E = math.log2(math.e)   # 1.4426950408889634  (precise, matches new script)
 
 def _build_exp_coeffs(num_segments=8):
     coeffs = []
@@ -87,15 +95,29 @@ def _build_exp_coeffs(num_segments=8):
 _EXP_COEFFS = _build_exp_coeffs()
 
 def _exp_unit(x: np.ndarray, use_log2e: bool = True) -> np.ndarray:
-    """Port of ExponentialUnit.forward()."""
+    """
+    Port of ExponentialUnit.forward() — new version.
+    Asymmetric barrel shifter: positive int -> left shift (multiply),
+                               negative int -> right shift (divide).
+    Precise log2(e) = 1.4426950408889634.
+    """
     x = x.astype(np.float64)
     if use_log2e:
-        x = x * (1.0 + 0.5 - 0.0625)    # log2e ≈ 1.4375
+        x = x * _LOG2E                             # precise log2(e)
     x_int  = np.floor(x).astype(np.int64)
     x_frac = np.clip(x - x_int.astype(np.float64), 0.0, 0.999999)
     seg    = np.clip(np.floor(x_frac * 8).astype(np.int64), 0, 7)
     K = _EXP_COEFFS[seg, 0];  B = _EXP_COEFFS[seg, 1]
-    return (K * x_frac + B) * (2.0 ** np.clip(x_int, -15, 15).astype(np.float64))
+    mantissa = K * x_frac + B
+
+    # Asymmetric barrel shifter — matches new training script
+    result = np.where(
+        x_int >= 0,
+        mantissa * (2.0 ** np.clip(x_int,  0, 15).astype(np.float64)),   # left shift
+        mantissa / (2.0 ** np.clip(-x_int, 0, 15).astype(np.float64))    # right shift
+    )
+    return result
+
 
 def _leading_one(x: np.ndarray):
     """Port of DivisionUnit.leading_one_detector()."""
@@ -105,44 +127,67 @@ def _leading_one(x: np.ndarray):
     m      = log2_x - w.astype(np.float64) + 1.0
     return w, m
 
-def _div_unit(num: np.ndarray, den: np.ndarray, add_one: bool = False) -> np.ndarray:
-    """Port of DivisionUnit.forward()."""
+_DU_Q = 16   # fractional bits for Q48.16
+
+def _div_unit(num: np.ndarray, den: np.ndarray, add_one: bool = False):
+    """
+    Port of DivisionUnit.forward() — new version.
+    Returns (exponent, sign) tuple — EU2 is applied by the caller (GCU).
+    s_i = (w_i - Q)  (not shifted, just float difference)
+    exponent = (m1 + s1) - (m2 + s2)
+    """
     if add_one:
         den = 1.0 + den
     w1, m1 = _leading_one(num)
     w2, m2 = _leading_one(den)
-    exp    = (m1 + w1.astype(np.float64)) - (m2 + w2.astype(np.float64))
-    result = _exp_unit(exp, use_log2e=False)
-    return result * (np.sign(num) * np.sign(den))
+    s1 = w1.astype(np.float64) - _DU_Q
+    s2 = w2.astype(np.float64) - _DU_Q
+    exponent = (m1 + s1) - (m2 + s2)
+    sign     = np.sign(num) * np.sign(den)
+    return exponent, sign
+
 
 def gcu(x: np.ndarray) -> np.ndarray:
     """
-    Port of GCU.forward():
-      PolynomialUnit: h_x = 0.8*x + 0.0625*x^3
-                      s_x = -10.3125 * h_x
-      exp_term = ExponentialUnit(-s_x, log2e=False)
-      return DivisionUnit(x, exp_term, add_one=True)  →  x / (1 + exp_term)
+    Port of GCU.forward() — new three-stage pipeline:
+      Stage 1: PolynomialUnit  → s(x)
+      Stage 2: EU1             → exp(s(x))
+      Stage 3: DU              → exponent, sign
+      Stage 4: EU2             → result = EU2(exponent) * sign
+
+    PolynomialUnit:
+      s(x) = -2*log2(e)*sqrt(2/pi) * (x + 0.044715*x^3)
     """
-    x        = x.astype(np.float64)
-    h_x      = 0.8 * x + 0.0625 * (x ** 3)        # PolynomialUnit
-    s_x      = -10.3125 * h_x                       # s_x_coeff = -10.0 - 0.25 - 0.0625
-    exp_term = _exp_unit(-s_x, use_log2e=False)
-    return _div_unit(x, exp_term, add_one=True)
+    x = x.astype(np.float64)
+
+    # Stage 1 — PolynomialUnit
+    coeff = -2.0 * _LOG2E * math.sqrt(2.0 / math.pi)   # ≈ -2.3046
+    cubic = 0.044715
+    s_x   = coeff * (x + cubic * (x ** 3))
+
+    # Stage 2 — EU1: exp(s_x), no log2e scaling (s_x already in log2 domain)
+    exp_term = _exp_unit(s_x, use_log2e=False)
+
+    # Stage 3 — DU: returns (exponent, sign)
+    exponent, sign = _div_unit(x, exp_term, add_one=True)
+
+    # Stage 4 — EU2: apply exponential to exponent
+    result = _exp_unit(exponent, use_log2e=False) * sign
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# APPROXIMATE LAYER NORM  (exact port of ApproximateLayerNorm)
+# APPROXIMATE LAYER NORM
 
 def approx_layernorm(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
                      eps: float = 1e-12, nr: int = 8) -> np.ndarray:
     """
     Port of ApproximateLayerNorm.forward():
-      var → Q5.26 → Newton-Raphson sqrt → normalise → affine
-    Returns float64 — caller does NOT apply fake_quant (training does not either).
+      var → Q5.26 → Newton-Raphson sqrt (8 iterations) → normalise → affine
     """
     mean   = x.mean(axis=-1, keepdims=True)
-    var    = x.var(axis=-1,  keepdims=True)     # unbiased=False  (PyTorch default)
-    var_fx = to_fixed(var, 32, 26)              # Q5.26 
+    var    = x.var(axis=-1,  keepdims=True)
+    var_fx = to_fixed(var, 32, 26)              # Q5.26
 
     s = np.where(var_fx > 1.0, var_fx * 0.5, np.ones_like(var_fx))
     for _ in range(nr):
@@ -153,20 +198,18 @@ def approx_layernorm(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# QUANTIZED LINEAR  (exact port of QuantizedLinear.forward)
+# QUANTIZED LINEAR
+
 def quantized_linear(x: np.ndarray, W_f: np.ndarray,
                      b_f: np.ndarray = None) -> np.ndarray:
     """
     Port of QuantizedLinear.forward():
-      q_input  = Quantize.apply(input)
-      q_weight = Quantize.apply(weight)          ← weight already on INT8 grid
-      return q_input @ q_weight.T + bias         ← bias is plain float
-    W_f is already on the INT8 grid (loaded as INT8, dequanted once at load time),
-    so fake_quant(W_f) ≈ W_f — we apply it anyway for exactness.
-    b_f is the plain float bias (INT32 * bias_scale at load time).
+      fake_quant(input) @ fake_quant(weight).T + bias
+    W_f already on INT8 grid; fake_quant is near no-op.
+    b_f is plain float (INT32 * bias_scale).
     """
     x_fq,  _ = fake_quant(x)
-    W_fq,  _ = fake_quant(W_f)     # weight is already on INT8 grid; this is a no-op
+    W_fq,  _ = fake_quant(W_f)
     out = x_fq @ W_fq.T.astype(np.float64)
     if b_f is not None:
         out = out + b_f.astype(np.float64)
@@ -194,12 +237,12 @@ class AttentionBlock:
         B, S, _ = x.shape
         T        = self.TILE
 
-        # ── Q/K/V: QuantizedLinear (fake_quant input + fake_quant weight + float bias)
+        # ── Q/K/V projections
         q_full = self._split(quantized_linear(x, self.Wq, self.bq), B, S)
         k_full = self._split(quantized_linear(x, self.Wk, self.bk), B, S)
         v_full = self._split(quantized_linear(x, self.Wv, self.bv), B, S)
 
-        # ── QKt tiled: each tile is Quantize.apply'd before matmul
+        # ── QKt tiled
         H  = self.heads
         scores = np.zeros((B, H, S, S), np.float64)
         for i in range(0, S, T):
@@ -212,8 +255,12 @@ class AttentionBlock:
         if mask is not None:
             scores = scores + mask
 
-        # ── PLASoftmax (includes Quantize.apply inside)
-        attn_probs, _ = pla_softmax(scores)
+        # ── NEW: Quantize QKt scores to INT8 before softmax
+        # Matches training: attn_scores_int8 = Quantize.apply(attn_scores)
+        scores_fq, _ = fake_quant(scores)
+
+        # ── PLASoftmax: receives INT8-grid scores
+        attn_probs, _ = pla_softmax(scores_fq)
 
         # ── V: Quantize.apply once on entire v_full, then tiled matmul
         v_fq, _ = fake_quant(v_full)
@@ -222,15 +269,13 @@ class AttentionBlock:
         for i in range(0, S, T):
             ctx[:, :, i:i+T, :] = attn_probs[:, :, i:i+T, :] @ v_fq
 
-        # merge heads
+        # merge heads → Wo
         ctx = ctx.transpose(0, 2, 1, 3).reshape(B, S, self.hidden)
-
-        # ── Wo: QuantizedLinear (no extra Quantize.apply in training)
         return quantized_linear(ctx, self.Wo, self.bo)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FEED-FORWARD  (exact port of FeedForward.forward)
+# FEED-FORWARD
 
 class FFNBlock:
     TILE = 32
@@ -243,13 +288,23 @@ class FFNBlock:
         B, S, _  = x.shape
         T        = self.TILE
 
-        # ── ffn_1 tiled → GCU → Quantize.apply
+        # ── ffn1 GeMM
         out1 = np.zeros((B, S, self.W1.shape[0]), np.float64)
         for i in range(0, S, T):
             out1[:, i:i+T, :] = quantized_linear(x[:, i:i+T, :], self.W1, self.b1)
-        x_mid, _ = fake_quant(gcu(out1))
 
-        # ── ffn_2 tiled  (no Quantize.apply on ffn output in training)
+        # ── NEW: Quantize ffn1 output to INT8 intermediate buffer
+        # Matches training: out1_int8 = Quantize.apply(out1)
+        out1_int8, _ = fake_quant(out1)
+
+        # ── Dequant INT8 buffer → Q10.22 → GCU → Q48.16 → INT8
+        # Matches training: out1_q10_22 = to_fixed_point(out1_int8, 32, 22)
+        out1_q10_22 = to_fixed(out1_int8, 32, 22)
+        gcu_out     = gcu(out1_q10_22)
+        gcu_q48_16  = to_fixed(gcu_out, 64, 16)                  # Q48.16
+        x_mid, _    = fake_quant(gcu_q48_16)                     # Q48.16 → INT8
+
+        # ── ffn2 GeMM
         out2 = np.zeros((B, S, self.W2.shape[0]), np.float64)
         for i in range(0, S, T):
             out2[:, i:i+T, :] = quantized_linear(x_mid[:, i:i+T, :], self.W2, self.b2)
@@ -269,21 +324,25 @@ class EncoderLayer:
     def forward(self, x: np.ndarray, mask=None):
         attn_out = self.attn.forward(x, mask)
 
-        # Residual 1: Quantize.apply(x) + Quantize.apply(attn) → LayerNorm
-        # Training: norm_input_1 = Quantize.apply(x) + Quantize.apply(attn_output)
-        #           x = attn_layer_norm(norm_input_1)   ← raw LN output, NO extra quant
+        # Residual 1
         x_fq,    _ = fake_quant(x)
         attn_fq, _ = fake_quant(attn_out)
-        x = approx_layernorm(x_fq + attn_fq, self.ln1_gamma, self.ln1_beta, eps=1e-12)
+        res1        = x_fq + attn_fq
+        res1_q5_26  = to_fixed(res1, 32, 26)          # Q5.26 before LN
+        x = approx_layernorm(res1_q5_26, self.ln1_gamma, self.ln1_beta, eps=1e-12)
+        x_fq2, _ = fake_quant(x)                      # LN1 → INT8
+        x = x_fq2
 
         ffn_out = self.ffn.forward(x)
 
-        # Residual 2: same pattern
-        x_fq2,   _ = fake_quant(x)
+        # Residual 2
+        x_fq3,   _ = fake_quant(x)
         ffn_fq,  _ = fake_quant(ffn_out)
-        x = approx_layernorm(x_fq2 + ffn_fq, self.ln2_gamma, self.ln2_beta, eps=1e-12)
-
-        return x   # raw LayerNorm output — NO Quantize.apply here
+        res2        = x_fq3 + ffn_fq
+        res2_q5_26  = to_fixed(res2, 32, 26)          # Q5.26 before LN
+        x = approx_layernorm(res2_q5_26, self.ln2_gamma, self.ln2_beta, eps=1e-12)
+        x_fq4, _ = fake_quant(x)                      # LN2 → INT8
+        return x_fq4
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -295,12 +354,9 @@ class HardwareBERT:
         self.layers  = [EncoderLayer(hidden, heads) for _ in range(num_layers)]
         self.emb_ln_gamma = self.emb_ln_beta = None
         self.word_emb = self.pos_emb = self.tok_type_emb = None
-        # pooler: nn.Linear (plain float, not QuantizedLinear)
         self.pooler_W = self.pooler_b = None
-        # classifier: QuantizedLinear
         self.clf_W    = self.clf_b    = None
 
-    # ─────────────────────────────────────────────────────────────────────────
     def load_weights(self, npz_path: str):
         print(f"Loading: {npz_path}")
         W = np.load(npz_path, allow_pickle=True)
@@ -309,13 +365,12 @@ class HardwareBERT:
             return W[k] if k in W.files else default
 
         def w_scale(k):
-            v = get(f'{k}.scale');       return float(v) if v is not None else 1.0
+            v = get(f'{k}.scale');  return float(v) if v is not None else 1.0
 
         def b_scale(k):
-            v = get(f'{k}.scale');       return float(v) if v is not None else 1.0
+            v = get(f'{k}.scale');  return float(v) if v is not None else 1.0
 
         def load_weight_f(k):
-            """Load INT8 weight → dequant to float (INT8 grid)."""
             raw = get(k)
             if raw is None: return None
             sc = w_scale(k)
@@ -323,7 +378,6 @@ class HardwareBERT:
                     else raw.astype(np.float32))
 
         def load_bias_f(k):
-            """Load INT32 bias → dequant to float using bias_scale."""
             raw = get(k)
             if raw is None: return None
             sc = b_scale(k)
@@ -331,7 +385,6 @@ class HardwareBERT:
                     else raw.astype(np.float64))
 
         def load_emb_f(k):
-            """Embeddings are INT8 with a weight scale."""
             raw = get(k)
             if raw is None: return None
             sc = w_scale(k)
@@ -378,40 +431,36 @@ class HardwareBERT:
             layer.ln2_beta  = get(f'bert.encoder.layers.{i}.ffn_layer_norm.bias',
                                   np.zeros(self.hidden, np.float32))
 
-        # Pooler: nn.Linear (plain float — weight stored as INT8, bias as INT32)
+        # Pooler (plain float)
         self.pooler_W = load_weight_f('bert.pooler.weight')
         self.pooler_b = load_bias_f('bert.pooler.bias')
 
-        # Classifier: QuantizedLinear
+        # Classifier
         self.clf_W = load_weight_f('classifier.weight')
         self.clf_b = load_bias_f('classifier.bias')
 
         print(f"  Loaded {len(W.files)} tensors.")
 
-    # ─────────────────────────────────────────────────────────────────────────
     def forward(self, input_ids, token_type_ids, attention_mask):
         B, S = input_ids.shape
         pos  = np.arange(S)[np.newaxis, :]
 
-        # BertEmbeddings: lookup + add + ApproximateLayerNorm + dropout(noop at inference)
         emb = (self.word_emb[input_ids].astype(np.float64)
              + self.pos_emb[pos].astype(np.float64)
              + self.tok_type_emb[token_type_ids].astype(np.float64))
         x   = approx_layernorm(emb, self.emb_ln_gamma, self.emb_ln_beta, eps=1e-12)
 
-        # Attention mask (matches BertModel.forward)
         mask = (1.0 - attention_mask[:, np.newaxis, np.newaxis, :]) * -10000.0
 
-        # TransformerEncoder
         for layer in self.layers:
             x = layer.forward(x, mask)
 
-        # Pooler: encoder_output[:,0] → nn.Linear (plain float) → Tanh
+        # Pooler: CLS token → float linear → Tanh
         cls_f  = x[:, 0, :].astype(np.float64)
         pooled = np.tanh(
             cls_f @ self.pooler_W.T.astype(np.float64) + self.pooler_b.astype(np.float64))
 
-        # Classifier: QuantizedLinear (dropout is noop at inference)
+        # Classifier
         logits = quantized_linear(pooled, self.clf_W, self.clf_b)
         return logits.astype(np.float32)
 
@@ -429,10 +478,10 @@ def estimate_accuracy(npz_path: str, num_samples: int = 872):
     except ImportError:
         print("pip install transformers datasets"); return None
 
-    print("\n" + "═"*60)
-    print("  HARDWARE-FAITHFUL INT8 BERT  —  SST-2 VALIDATION")
-    print("  PLA Softmax | GCU | Newton-Raphson LayerNorm")
-    print("═"*60)
+    print("\n" + "="*60)
+    print("  HARDWARE-FAITHFUL INT8 BERT  --  SST-2 VALIDATION")
+    print("  New GCU (EU1+DU+EU2) | INT8 QKt buffer | INT8 FFN1 buffer")
+    print("="*60)
 
     model = HardwareBERT()
     model.load_weights(npz_path)
@@ -442,7 +491,7 @@ def estimate_accuracy(npz_path: str, num_samples: int = 872):
     samples   = dataset.select(range(min(num_samples, len(dataset))))
     correct = total = 0
 
-    print(f"\n  Evaluating {len(samples)} samples…\n")
+    print(f"\n  Evaluating {len(samples)} samples...\n")
     for start in range(0, len(samples), 8):
         batch  = samples[start:start+8]
         labels = np.array(batch['label'])
@@ -457,15 +506,27 @@ def estimate_accuracy(npz_path: str, num_samples: int = 872):
 
     acc = correct / total * 100
     print(f"\n\n  Accuracy  : {acc:.2f}%  ({correct}/{total})")
+    print(f"  Expected  : ~80-88%")
+    print("="*60)
     return acc
 
-if __name__ == "__main__":
-    w = r"/kaggle/input/datasets/khalednabil676/sst-2-weight-file/weights_with_scales.npz"
-    estimate_accuracy(w)
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ACTIVATION RECORDER
+#
+# Records full activation matrices before/after every PDF block.
+# Updated for new training script:
+#   - QKt scores quantized to INT8 buffer before Q5.26 snap + softmax
+#   - FFN1 output quantized to INT8 buffer before Q10.22 + GCU
+#   - LN inputs snapped to Q5.26 before LayerNorm (matches PDF hardware flow)
+#   - GCU uses new EU1->DU->EU2 pipeline (via updated gcu() function)
+#
+# Saved dtypes:
+#   INT8   — any node output after quantize  (+ companion _scale float32 key)
+#   INT32  — GeMM accumulators and after-bias
+#   float32— fixed-point registers and LN domain values
 
 def record_activations(npz_path: str,
                        out_npz:   str = "activations.npz",
@@ -473,8 +534,7 @@ def record_activations(npz_path: str,
                        n_samples: int = 5):
     """
     Runs n_samples through the full 12-layer model and records every
-    activation matrix before and after each PDF block using hardware-accurate
-    integer types. GeMM accumulators are INT8 x INT8 -> INT32 (correct).
+    activation matrix before and after each PDF block.
     """
     try:
         from transformers import BertTokenizer
@@ -497,15 +557,9 @@ def record_activations(npz_path: str,
     index = {}
 
     def to_int8_arr(fq_arr, sc):
-        """Recover raw INT8 integers from fake-quant floats."""
         return np.round(np.array(fq_arr) / float(sc)).clip(-127, 127).astype(np.int8)
 
     def int8_matmul_i32(a_i8, b_i8):
-        """
-        Hardware-correct INT8 x INT8 -> INT32 matmul.
-        a_i8: (M, K)  b_i8: (N, K)  ->  result: (M, N)  dtype int32
-        Matches hardware MAC accumulator exactly.
-        """
         return a_i8.astype(np.int32) @ b_i8.T.astype(np.int32)
 
     def save_i8(key, fq_arr, sc, desc):
@@ -564,29 +618,26 @@ def record_activations(npz_path: str,
                 f"s{si} l{li} | INPUT_QUANT before | float LN output entering quantizer | ({S},{x.shape[-1]})")
             x_fq, x_sc = fake_quant(x)
             save_i8(f"{p}_input_quant_after", x_fq, x_sc,
-                f"s{si} l{li} | INPUT_QUANT after  | x_i8 quantized output | ({S},{x_fq.shape[-1]})")
+                f"s{si} l{li} | INPUT_QUANT after  | x_i8 | ({S},{x_fq.shape[-1]})")
 
-            # recover raw INT8 integers for correct GeMM
-            x_i8_raw  = to_int8_arr(x_fq,  x_sc)                  # (B,S,H) int8
-            Wq_i8_raw = to_int8_arr(a.Wq,  fake_quant(a.Wq)[1])   # (H,H)   int8
+            x_i8_raw  = to_int8_arr(x_fq,  x_sc)
+            Wq_i8_raw = to_int8_arr(a.Wq,  fake_quant(a.Wq)[1])
             Wk_i8_raw = to_int8_arr(a.Wk,  fake_quant(a.Wk)[1])
             Wv_i8_raw = to_int8_arr(a.Wv,  fake_quant(a.Wv)[1])
             Wo_i8_raw = to_int8_arr(a.Wo,  fake_quant(a.Wo)[1])
 
             # ── Q PROJECTION ──────────────────────────────────────────────
-            q_acc_i32 = int8_matmul_i32(x_i8_raw[0], Wq_i8_raw)   # (S, H) int32
+            q_acc_i32 = int8_matmul_i32(x_i8_raw[0], Wq_i8_raw)
             save_i32(f"{p}_q_proj_after_gemm", q_acc_i32,
                 f"s{si} l{li} | Q_PROJ after_gemm | INT32 = x_i8 @ Wq.T | ({S},{q_acc_i32.shape[-1]})")
-
             if a.bq is not None:
-                bq_sc      = float(fake_quant(x_fq)[1]) * float(fake_quant(a.Wq)[1])
+                bq_sc      = float(x_sc) * float(fake_quant(a.Wq)[1])
                 bq_i32     = np.round(a.bq / bq_sc).clip(-2147483648, 2147483647).astype(np.int32)
                 q_bias_i32 = q_acc_i32 + bq_i32
                 save_i32(f"{p}_q_proj_after_bias", q_bias_i32,
                     f"s{si} l{li} | Q_PROJ after_bias  | INT32 + bias_i32 | ({S},{q_bias_i32.shape[-1]})")
             else:
                 q_bias_i32 = q_acc_i32
-
             q_sc_combined = float(x_sc) * float(fake_quant(a.Wq)[1])
             q_dequant     = q_bias_i32.astype(np.float64) * q_sc_combined
             q_fq, q_sc    = fake_quant(q_dequant[np.newaxis])
@@ -639,31 +690,35 @@ def record_activations(npz_path: str,
             for h in range(H):
                 scores_i32[h] = int8_matmul_i32(q_i8_h[h], k_i8_h[h])
             save_i32(f"{p}_qkt_after_gemm", scores_i32,
-                f"s{si} l{li} | QKT_GEMM after_gemm | INT32 = q_i8 @ k_i8.T (all heads) | ({H},{S},{S})")
-            
-            qkt_sc    = float(q_sc) * float(k_sc)
-            scores_f  = scores_i32.astype(np.float64) * qkt_sc * a.scale
+                f"s{si} l{li} | QKT_GEMM after_gemm | INT32 = q_i8 @ k_i8.T | ({H},{S},{S})")
+
+            qkt_sc   = float(q_sc) * float(k_sc)
+            scores_f = scores_i32.astype(np.float64) * qkt_sc * a.scale
             if mask is not None:
                 scores_f = scores_f + mask[0]
-            mx      = scores_f.max(axis=-1, keepdims=True)
-            shifted = to_fixed(scores_f, 32, 26)
+
+            # NEW: quantize scores to INT8 buffer before softmax
+            scores_fq, scores_buf_sc = fake_quant(scores_f)
+            save_i8(f"{p}_qkt_after_quant", scores_fq, scores_buf_sc,
+                f"s{si} l{li} | QKT_GEMM after_quant | INT8 buffer before softmax | ({H},{S},{S})")
+
+            # dequant INT8 buffer → Q5.26 → softmax input
+            mx      = scores_fq.max(axis=-1, keepdims=True)
+            shifted = to_fixed(scores_fq - mx, 32, 26)
             save_f32(f"{p}_qkt_after_q5_26", shifted,
-                f"s{si} l{li} | QKT_GEMM after_q5_26 | Q5.26 fixed-point | ({H},{S},{S})")
+                f"s{si} l{li} | QKT_GEMM after_q5_26 | Q5.26 softmax input | ({H},{S},{S})")
 
             # ── SOFTMAX ───────────────────────────────────────────────────
             exps      = _pla_exp(shifted)
             probs_raw = exps / (exps.sum(axis=-1, keepdims=True) + 1e-9)
-            
-            # TRUE SOFTMAX OUTPUT (before quantizer)
             save_f32(f"{p}_softmax_after_pla", probs_raw,
-                f"s{si} l{li} | SOFTMAX after_pla   | TRUE SOFTMAX OUTPUT float32 probs | ({H},{S},{S})")
-            
+                f"s{si} l{li} | SOFTMAX after_pla   | TRUE SOFTMAX OUTPUT float32 | ({H},{S},{S})")
             attn_fq, attn_sc = fake_quant(probs_raw[np.newaxis])
             save_i8(f"{p}_softmax_after_quant", attn_fq, attn_sc,
-                f"s{si} l{li} | SOFTMAX after_quant   | attn_i8 [Q1.15->8] | ({H},{S},{S})")
+                f"s{si} l{li} | SOFTMAX after_quant | attn_i8 [Q1.15->8] | ({H},{S},{S})")
 
             # ── .V GeMM ───────────────────────────────────────────────────
-            attn_i8_raw = to_int8_arr(attn_fq, attn_sc)  # (1,H,S,S)
+            attn_i8_raw = to_int8_arr(attn_fq, attn_sc)
             ctx_i32 = np.zeros((H, S, D), np.int32)
             for h in range(H):
                 ctx_i32[h] = attn_i8_raw[0, h].astype(np.int32) @ v_i8_h[h].astype(np.int32)
@@ -677,8 +732,8 @@ def record_activations(npz_path: str,
                 f"s{si} l{li} | DOTV_GEMM after_quant | ctx_i8 [32int->8] | ({S},{H*D})")
 
             # ── Wo PROJECTION ─────────────────────────────────────────────
-            ctx_i8_raw = to_int8_arr(ctx_fq, ctx_sc)[0]            # (S, H*D) int8
-            wo_acc_i32 = int8_matmul_i32(ctx_i8_raw, Wo_i8_raw)    # (S, H)   int32
+            ctx_i8_raw = to_int8_arr(ctx_fq, ctx_sc)[0]
+            wo_acc_i32 = int8_matmul_i32(ctx_i8_raw, Wo_i8_raw)
             save_i32(f"{p}_wo_proj_after_gemm", wo_acc_i32,
                 f"s{si} l{li} | WO_PROJ after_gemm | INT32 = ctx_i8 @ Wo.T | ({S},{wo_acc_i32.shape[-1]})")
             if a.bo is not None:
@@ -700,31 +755,24 @@ def record_activations(npz_path: str,
             wo_res_fq, wo_res_sc = fake_quant(wo_dequant[np.newaxis])
             x_res_i8  = to_int8_arr(x_res_fq,  x_res_sc)
             wo_res_i8 = to_int8_arr(wo_res_fq, wo_res_sc)
-            res1_f = (x_res_i8.astype(np.float64)  * float(x_res_sc) +
-                      wo_res_i8.astype(np.float64) * float(wo_res_sc))
-
-            # PDF: residual sum is snapped to Q5.26 before entering LayerNorm
+            res1_f    = (x_res_i8.astype(np.float64) * float(x_res_sc) +
+                         wo_res_i8.astype(np.float64) * float(wo_res_sc))
+            # Q5.26 snap before LN (matches new training script)
             res1_q5_26 = to_fixed(res1_f, 32, 26)
-
-            # SAVE TRUE LN1 INPUT — Q5.26 fixed-point (exact value entering LN hardware)
             save_f32(f"{p}_resadd1_ln1_input", res1_q5_26,
-                f"s{si} l{li} | RESADD1_LN1 input | TRUE LN1 INPUT Q5.26 (step=2^-26) | ({S},{res1_q5_26.shape[-1]})")
-
+                f"s{si} l{li} | RESADD1_LN1 input | TRUE LN1 INPUT Q5.26 (x_i8*sc + wo_i8*sc) | ({S},{res1_q5_26.shape[-1]})")
             ln1_out = approx_layernorm(res1_q5_26, layer.ln1_gamma, layer.ln1_beta, eps=1e-12)
-            
-            # SAVE TRUE LN1 OUTPUT (before quantizer)
             save_f32(f"{p}_resadd1_ln1_after_ln", ln1_out,
                 f"s{si} l{li} | RESADD1_LN1 after_ln | TRUE LN1 OUTPUT float32 | ({S},{ln1_out.shape[-1]})")
-            
             x1_fq, x1_sc = fake_quant(ln1_out)
             save_i8(f"{p}_resadd1_ln1_after_quant", x1_fq, x1_sc,
-                f"s{si} l{li} | RESADD1_LN1 after_quant| x_i8 post-LN1 [?->8] | ({S},{x1_fq.shape[-1]})")
+                f"s{si} l{li} | RESADD1_LN1 after_quant | x_i8 post-LN1 | ({S},{x1_fq.shape[-1]})")
 
             # ── FFN1 GeMM ─────────────────────────────────────────────────
-            x1_i8_raw  = to_int8_arr(x1_fq,  x1_sc)[0]               # (S,H) int8
+            x1_i8_raw    = to_int8_arr(x1_fq, x1_sc)[0]
             W1_fq, W1_sc = fake_quant(ff.W1)
-            W1_i8_raw  = to_int8_arr(W1_fq, W1_sc)                    # (FFN,H) int8
-            ffn1_acc_i32 = int8_matmul_i32(x1_i8_raw, W1_i8_raw)      # (S,FFN) int32
+            W1_i8_raw    = to_int8_arr(W1_fq, W1_sc)
+            ffn1_acc_i32 = int8_matmul_i32(x1_i8_raw, W1_i8_raw)
             save_i32(f"{p}_ffn1_gemm_after_gemm", ffn1_acc_i32,
                 f"s{si} l{li} | FFN1_GEMM after_gemm | INT32 = x_i8 @ W1.T | ({S},{ffn1_acc_i32.shape[-1]})")
             if ff.b1 is not None:
@@ -737,24 +785,31 @@ def record_activations(npz_path: str,
                 ffn1_bias_i32 = ffn1_acc_i32
             ffn1_sc_combined = float(x1_sc) * float(W1_sc)
             ffn1_dequant     = ffn1_bias_i32.astype(np.float64) * ffn1_sc_combined
-            ffn1_q10_22      = to_fixed(ffn1_dequant[np.newaxis], 32, 22)
-            save_f32(f"{p}_ffn1_gemm_after_q10_22", ffn1_q10_22[0],
-                f"s{si} l{li} | FFN1_GEMM after_q10_22| Q10.22 fixed-point | ({S},{ffn1_q10_22.shape[-1]})")
 
-            # ── GCU ───────────────────────────────────────────────────────
+            # NEW: INT8 intermediate buffer after ffn1 before GCU
+            ffn1_buf_fq, ffn1_buf_sc = fake_quant(ffn1_dequant[np.newaxis])
+            save_i8(f"{p}_ffn1_gemm_after_quant", ffn1_buf_fq, ffn1_buf_sc,
+                f"s{si} l{li} | FFN1_GEMM after_quant | INT8 buffer before GCU | ({S},{ffn1_buf_fq.shape[-1]})")
+
+            # dequant INT8 buffer → Q10.22 → GCU input
+            ffn1_q10_22 = to_fixed(ffn1_buf_fq, 32, 22)
+            save_f32(f"{p}_ffn1_gemm_after_q10_22", ffn1_q10_22[0] if ffn1_q10_22.ndim > 2 else ffn1_q10_22,
+                f"s{si} l{li} | FFN1_GEMM after_q10_22 | Q10.22 GCU input | ({S},{ffn1_q10_22.shape[-1]})")
+
+            # ── GCU (new EU1->DU->EU2 pipeline via updated gcu()) ─────────
             gcu_out    = gcu(ffn1_q10_22)
             gcu_q48_16 = to_fixed(gcu_out, 64, 16)
             save_f32(f"{p}_gcu_after_q48_16", gcu_q48_16[0] if gcu_q48_16.ndim > 2 else gcu_q48_16,
-                f"s{si} l{li} | GCU after_q48_16 | TRUE GCU OUTPUT Q48.16 fixed-point | ({S},{gcu_q48_16.shape[-1]})")
+                f"s{si} l{li} | GCU after_q48_16 | TRUE GCU OUTPUT Q48.16 | ({S},{gcu_q48_16.shape[-1]})")
             mid_fq, mid_sc = fake_quant(gcu_q48_16)
             save_i8(f"{p}_gcu_after_quant", mid_fq, mid_sc,
-                f"s{si} l{li} | GCU after_quant  | mid_i8 [Q48.16->8] quantizer output | ({S},{mid_fq.shape[-1]})")
+                f"s{si} l{li} | GCU after_quant  | mid_i8 [Q48.16->8] | ({S},{mid_fq.shape[-1]})")
 
             # ── FFN2 GeMM ─────────────────────────────────────────────────
-            mid_i8_raw = to_int8_arr(mid_fq, mid_sc)[0]               # (S,FFN) int8
+            mid_i8_raw   = to_int8_arr(mid_fq, mid_sc)[0]
             W2_fq, W2_sc = fake_quant(ff.W2)
-            W2_i8_raw  = to_int8_arr(W2_fq, W2_sc)                    # (H,FFN) int8
-            ffn2_acc_i32 = int8_matmul_i32(mid_i8_raw, W2_i8_raw)     # (S,H) int32
+            W2_i8_raw    = to_int8_arr(W2_fq, W2_sc)
+            ffn2_acc_i32 = int8_matmul_i32(mid_i8_raw, W2_i8_raw)
             save_i32(f"{p}_ffn2_gemm_after_gemm", ffn2_acc_i32,
                 f"s{si} l{li} | FFN2_GEMM after_gemm | INT32 = mid_i8 @ W2.T | ({S},{ffn2_acc_i32.shape[-1]})")
             if ff.b2 is not None:
@@ -769,35 +824,27 @@ def record_activations(npz_path: str,
             ffn2_dequant     = ffn2_bias_i32.astype(np.float64) * ffn2_sc_combined
             ffn2_fq, ffn2_sc = fake_quant(ffn2_dequant[np.newaxis])
             save_i8(f"{p}_ffn2_gemm_after_quant", ffn2_fq, ffn2_sc,
-                f"s{si} l{li} | FFN2_GEMM after_quant| ffn2_i8 [32int->8] | ({S},{ffn2_fq.shape[-1]})")
+                f"s{si} l{li} | FFN2_GEMM after_quant | ffn2_i8 [32int->8] | ({S},{ffn2_fq.shape[-1]})")
 
             # ── RESIDUAL ADD 2 + LN2 ──────────────────────────────────────
             x1_res_fq2,  x1_res_sc2  = fake_quant(ln1_out)
             ffn2_res_fq, ffn2_res_sc = fake_quant(ffn2_dequant[np.newaxis])
             x1_res_i8   = to_int8_arr(x1_res_fq2,  x1_res_sc2)
             ffn2_res_i8 = to_int8_arr(ffn2_res_fq, ffn2_res_sc)
-            res2_f = (x1_res_i8.astype(np.float64)   * float(x1_res_sc2) +
-                      ffn2_res_i8.astype(np.float64) * float(ffn2_res_sc))
-
-            # PDF: residual sum is snapped to Q5.26 before entering LayerNorm
-            res2_q5_26 = to_fixed(res2_f, 32, 26)
-
-            # SAVE TRUE LN2 INPUT — Q5.26 fixed-point (exact value entering LN hardware)
+            res2_f      = (x1_res_i8.astype(np.float64)  * float(x1_res_sc2) +
+                           ffn2_res_i8.astype(np.float64) * float(ffn2_res_sc))
+            # Q5.26 snap before LN (matches new training script)
+            res2_q5_26  = to_fixed(res2_f, 32, 26)
             save_f32(f"{p}_resadd2_ln2_input", res2_q5_26,
-                f"s{si} l{li} | RESADD2_LN2 input | TRUE LN2 INPUT Q5.26 (step=2^-26) | ({S},{res2_q5_26.shape[-1]})")
-
+                f"s{si} l{li} | RESADD2_LN2 input | TRUE LN2 INPUT Q5.26 (x_i8*sc + ffn2_i8*sc) | ({S},{res2_q5_26.shape[-1]})")
             ln2_out = approx_layernorm(res2_q5_26, layer.ln2_gamma, layer.ln2_beta, eps=1e-12)
-            
-            # SAVE TRUE LN2 OUTPUT (before quantizer)
             save_f32(f"{p}_resadd2_ln2_after_ln", ln2_out,
                 f"s{si} l{li} | RESADD2_LN2 after_ln | TRUE LN2 OUTPUT float32 | ({S},{ln2_out.shape[-1]})")
-            
             x2_fq, x2_sc = fake_quant(ln2_out)
             save_i8(f"{p}_resadd2_ln2_after_quant", x2_fq, x2_sc,
-                f"s{si} l{li} | RESADD2_LN2 after_quant| x_i8 post-LN2 = LAYER OUTPUT | ({S},{x2_fq.shape[-1]})")
+                f"s{si} l{li} | RESADD2_LN2 after_quant | x_i8 post-LN2 = LAYER OUTPUT | ({S},{x2_fq.shape[-1]})")
 
-            x = ln2_out   # feed to next layer
-
+            x = ln2_out
             n_saved = len([k for k in store if k.startswith(f"s{si}_l{li}_")])
             print(f"    layer {li:2d} done  ({n_saved} tensors)")
 
@@ -845,6 +892,7 @@ def record_activations(npz_path: str,
     print(f"    q_scale = data['s0_l0_q_proj_after_quant_scale']")
     print("="*60)
 
+
 if __name__ == "__main__":
-    w = r"/kaggle/input/datasets/khalednabil676/sst-2-weight-file/weights_with_scales.npz"
+    w = r"/kaggle/input/datasets/khalednabil676/bert-weight-file/weights_with_scales.npz"
     estimate_accuracy(w)

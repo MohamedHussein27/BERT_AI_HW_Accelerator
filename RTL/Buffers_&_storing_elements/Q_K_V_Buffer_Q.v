@@ -28,7 +28,7 @@ module Q_K_V_buffer (
     // =========================================================
     // PORT A: Write Logic (256-bit)
     // =========================================================
-    always @(posedge clka) begin
+    always @(*) begin
         if (ena) begin
             if (wea) begin
                 ram[addra] <= dina;
