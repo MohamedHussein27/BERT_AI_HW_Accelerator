@@ -163,6 +163,7 @@ module fetch_logic_gen #(
                          
             case (current_state)
                 IDLE: begin
+                    //general_en = 1'b1;
                     if (start_fetch) 
                         begin
                             next_state = FETCHING;
@@ -181,6 +182,7 @@ module fetch_logic_gen #(
                 end
 
                 WAIT: begin
+                    general_en = 1'b1;
                     if (start_fetch)
                         next_state = FETCHING;
                     else

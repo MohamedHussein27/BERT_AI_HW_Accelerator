@@ -106,16 +106,18 @@ module write_logic_gen #(
                 if (sipo_mode && (tile_offset == 16 - 1)) begin // 16 = 512 / 32 which we will know that this is the last row to be written the SM buffer
                     next_state = DONE_ALL;
                 end
+
+                // Check if we just finished a standard tile
+                else if (tile_offset == TILE_DEPTH - 1) begin
+                    next_state = DONE;
+                end
                 
                 // Check if we just finished the very last element of the entire buffer
                 else if ((write_offset == MAX_DEPTH - 1) && !sipo_mode) begin
                     next_state = DONE_ALL;
                 end
 
-                // Check if we just finished a standard tile
-                else if (tile_offset == TILE_DEPTH - 1) begin
-                    next_state = DONE;
-                end
+                
                 // Otherwise, keep writing
                 else begin
                     next_state = WRITING;

@@ -51,14 +51,16 @@ module transformer_master_ctrl (
     input  logic       softmax_done,
     input  logic       softmax_out_valid, // Added: Used in WAIT_SOFTMAX
     input  logic       softmax_out_last,
-    output logic       softmax_out_in,    // Added: Driven in WAIT_SIPO
+    input  logic       softmax_busy,
+    output logic       softmax_valid_in,
+    input  logic       softmax_in_ready,
 
     // ========================================================
     // 4. Quantization
     // ========================================================
     // Vector Quantizaiton
     output logic       quantize_valid_in,
-    output logic       quantize_param_addr,
+    output logic [7:0] quantize_param_addr,
     // Element Quantization
     output logic       quantize_u_valid_in
 );
@@ -113,20 +115,24 @@ module transformer_master_ctrl (
     logic [4:0] done_in_tile_counter; // to count how many input tiles we fetched
     logic [4:0] done_wt_tile_counter; // to count how many weight tiles we fetched
     logic [5:0] piso_counter;         // counter to wait until the serialized inputs go to the softmax to fetch a new 32 elements
+    logic [2:0] quantize_counter;         // counter to output the valid for quantizer and scales at the right time
 
     // flags
     logic       Q_Kt_sel; // this signal like the above makes us write in the Q_Kt buffer
     logic       repeat_matrix; // this signal is for the cpu to fetch the matrix tiles again for sa
     logic       db_control;  // to control when to fetch from the double buffering addresses
+    logic fetch_pulse_flag; // flag to make the fetch to be high only for one cycle
+    logic freeze_quantize_counter; // to make the quantize counter freezed at 8 to be resetted again in the FETCHING_QKt
     //logic     first_sa_time; // flag to raise the first iteration output for the sa in the first time only
 
     logic write_pulse_flag; // flag to make the write to be high only for one cycle
     logic softmax_pulse_flag; // flag to make softmax start sig high for one clock
 
+    logic [9:0] softmax_row_cnt;  // signal to know how many rows we've processed in softmax
 
-    //
 
-    assign quantize_u_valid_in = softmax_out_valid;
+
+    
 
     //
     // ========================================================
@@ -143,14 +149,18 @@ module transformer_master_ctrl (
             done_in_tile_counter <= '0;
             done_wt_tile_counter <= '0;
 
-            // Sequential Outputs Reset
+            // Counters
             sa_last_tile <= 0;
             write_start <= 0;
             softmax_start <= 0;
             fetch_reset_in_addr_counter <= 0;
             fetch_reset_wt_addr_counter <= 0;
+            softmax_row_cnt <= 0;
+            piso_counter <= 0;
+            quantize_counter <= 0;
 
             // flags
+            fetch_pulse_flag <= 1;
             write_pulse_flag <= 1;
             softmax_pulse_flag <= 1;
         end
@@ -158,9 +168,9 @@ module transformer_master_ctrl (
             state <= next_state;
             
             // Pulse defaults (prevents these from latching high forever)
-            fetch_reset_in_addr_counter <= 1'b0;
+            /*fetch_reset_in_addr_counter <= 1'b0;
             write_start <= 1'b0;
-            softmax_start <= 1'b0;
+            softmax_start <= 1'b0;*/
 
             if ((state == FETCHING_I || state == FETCHING_K_I || state == FETCHING_V_I) 
                 && 
@@ -230,6 +240,22 @@ module transformer_master_ctrl (
                 piso_counter <= piso_counter + 1; // can be handeled by busy signal from piso module
             else
                 piso_counter <= '0;*/
+
+            if (state == WAIT_SIPO && next_state == FETCHING_Q_Kt)
+                softmax_row_cnt <= softmax_row_cnt + 1;
+            else if (state == FETCHING_V)
+                softmax_row_cnt <= 0;
+
+            // counter to make use of in the wait sipo and quantization (dynamics)
+            if (next_state == FETCHING_Q_Kt && state == WAIT_PISO)
+                quantize_counter <= 0;
+            else if (state == FETCHING_Q_Kt || state == WAIT_PISO) 
+                if (quantize_counter == 10)
+                    quantize_counter <= 10;
+                else
+                    quantize_counter <= quantize_counter + 1;
+            /*else
+                quantize_counter <= 0;*/
             
 
             //**************************************** flags ************************************\\
@@ -261,7 +287,20 @@ module transformer_master_ctrl (
                 fetch_stop_counting <= 1;
             else 
                 fetch_stop_counting <= 0;*/
+            
+            // pulsing fetch start 
+            if ( fetch_pulse_flag && (next_state == FETCHING_W || next_state == FETCHING_I || next_state  == FETCHING_Q_Kt)) begin
+                fetch_start <= 1;
+                fetch_pulse_flag <= 0;
+            end
+            else if (sa_done || fetch_wt_done ) begin
+                fetch_pulse_flag <= 1;
+            end
+            else begin
+                fetch_start <= 0;
+            end
 
+            
         end
     end
 
@@ -272,7 +311,7 @@ module transformer_master_ctrl (
         next_state = state; // Default hold
         
         case (state)
-            ST_IDLE:        if (start_inference) next_state = FETCHING_W;
+            ST_IDLE:        if (start_inference) next_state = FETCHING_Q_Kt;
             
             //******************** First Stage: filling Q K V matrices to be used ***********************\\
             FETCHING_W:     if (fetch_wt_done)             next_state = FETCHING_Q_Kt;
@@ -311,14 +350,14 @@ module transformer_master_ctrl (
 
             //********************* third stage: softmax ****************************\\
             FETCHING_Q_Kt: if (fetch_in_done) next_state = WAIT_SOFTMAX; // wait softmax processing the row and then give it another
-                           else if (fetch_stop_counting) next_state = WAIT_PISO;
+                           else if (quantize_counter == 2) next_state = WAIT_PISO;
                            else next_state = FETCHING_Q_Kt; // wait the 32 clocks as the 32 elements being serialized to the softmax
             
             WAIT_PISO: 
                         begin
                             /*if (piso_counter == 16) next_state = FETCHING_Q_Kt;
                             else                    next_state = WAIT_PISO;*/
-                            if (!piso_busy) next_state = FETCHING_Q_Kt;
+                            if (!piso_busy && quantize_counter >= 5) next_state = FETCHING_Q_Kt; // 7 is dump no. to just get thestuck to the wait piso state until the busy cond. is correct
                             else            next_state = WAIT_PISO;
                         end
             // we are processing the complete row in softmax
@@ -328,7 +367,7 @@ module transformer_master_ctrl (
             // assuming the complete row is being outputed serially
             WAIT_SIPO: 
                         begin    
-                            if (write_done_all) next_state = FETCHING_V;
+                            if (write_done_all) next_state = ST_IDLE;
                             else if (softmax_out_last) next_state = FETCHING_Q_Kt;
                             else next_state = WAIT_SIPO;
                         end
@@ -345,8 +384,7 @@ module transformer_master_ctrl (
         layer_done       = 1'b0;
         
         // Fetch logic
-        fetch_start      = 1'b0;
-        fetch_buffer_sel = 4'b0000;
+        fetch_buffer_sel = 5'b0000;
         fetch_tiles_ctrl = 2'b00;
         fetch_double_buf = 1'b0;
         fetch_hold_addr_ptr = 1'b0; // Added default
@@ -366,9 +404,11 @@ module transformer_master_ctrl (
         // quantization
         quantize_valid_in = 1'b0;
         quantize_param_addr = 1'b0; // Added default
+        freeze_quantize_counter = 0;
 
-        // softmax serializers
-        softmax_out_in = 1'b0;
+        // softmax
+        softmax_valid_in   = 0;
+
 
         // Note: write_start, softmax_start, and sa_last_tile are driven sequentially 
         // in Block 1, so they are explicitly NOT defaulted here to prevent multiple drivers.
@@ -437,12 +477,16 @@ module transformer_master_ctrl (
                 //  Fetch Weights 'Softmax'
                 fetch_buffer_sel = 4'b0110; 
                 fetch_tiles_ctrl = 2'b11; // fetch 16
+                fetch_stop_counting = 1'b1;
+                if (quantize_counter == 2) begin
+                    quantize_valid_in = 1'b1;
+                    quantize_param_addr = 8'h04; // addr to softmax scales
+                end
             end
                 
             WAIT_PISO: begin
-                quantize_valid_in = 1'b1;
-                fetch_stop_counting = 1'b1;
-                quantize_param_addr = 8'h04; // addr to softmax scales
+                fetch_buffer_sel = 4'b0110;
+                softmax_valid_in   = 1;
             end
             
             WAIT_SOFTMAX: begin
@@ -450,11 +494,11 @@ module transformer_master_ctrl (
             end
 
             WAIT_SIPO: begin
-                softmax_out_in = 1'b1;
                 write_sipo_mode = 1'b1;
             end
             
             default: ; // Defaults handle everything else safely
         endcase
+        assign quantize_u_valid_in = softmax_out_valid;
     end
 endmodule

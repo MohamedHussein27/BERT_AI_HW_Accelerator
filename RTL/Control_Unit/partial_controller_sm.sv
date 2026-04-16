@@ -257,7 +257,7 @@ module transformer_master_ctrl (
         next_state = state; // Default hold
         
         case (state)
-            ST_IDLE:        if (start_inference) next_state = FETCHING_W;
+            ST_IDLE:        if (start_inference) next_state = FETCHING_Q_Kt;
             
             //******************** First Stage: filling Q K V matrices to be used ***********************\\
             FETCHING_W:     if (fetch_done)             next_state = FETCHING_Q_Kt;

@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module tb_integration_qkv();
+module tb_controller_sm();
 
     parameter FETCH_NUM_BUFFERS = 17;
     parameter WRITE_NUM_BUFFERS = 12;
@@ -41,7 +41,7 @@ module tb_integration_qkv();
     wire       fetch_busy_wire;
     wire       fetch_wt_done_wire;
     wire       fetch_in_done_wire;
-    wire [10:0]                  fetch_bram_addr_wire;
+    wire [15:0]                  fetch_bram_addr_wire;
     wire [FETCH_NUM_BUFFERS-1:0] fetch_bram_en_wire;
 
     // Handle width mismatch between 3-bit output from master controller and 4-bit input to fetch logic
@@ -59,18 +59,7 @@ module tb_integration_qkv();
     wire [15:0]                  write_bram_addr_wire;
     wire [WRITE_NUM_BUFFERS-1:0] write_bram_we_wire;
 
-    // Controller <-> Systolic Array Signals
-    wire sa_valid_in_wire;
-    wire sa_load_weight_wire;
-    wire sa_first_iter_wire;
-    wire sa_last_tile_wire;
-    wire sa_pre_valid_out_wire;
-    
-    wire sa_done_wire;
-    wire sa_valid_out_wire;
-    wire sa_ready_wire;
-    wire sa_busy_wire;
-    wire [1023:0] sa_data_out_wire;
+   
     // Assuming output matches width for N_SIZE=32, DATAWIDTH_out=32
 
     wire [255:0] doutb_wbi_wire;
@@ -82,7 +71,7 @@ module tb_integration_qkv();
     // =======================================================
     wire        write_sipo_mode_wire;
     wire        quantize_valid_in_wire;
-    wire [9:0]  quantize_param_addr_wire;
+    wire [7:0]  quantize_param_addr_wire;
     wire        quantize_u_valid_in_wire;
     wire        p2s_valid_out_wire;
     wire        p2s_busy_wire;
@@ -98,13 +87,13 @@ module tb_integration_qkv();
     wire        s2p_out_valid_wire;
     
     wire [31:0] m0_out_wire;
-    wire [31:0] s_out_wire;
+    wire [7:0] s_out_wire;
     
-    wire [255:0] quantize_piso_data_wire;
+    wire [31:0][31:0] quantize_piso_data_wire;
     wire         quantize_piso_valid_wire;
     
     wire [31:0] p2s_out_wire;
-    wire [31:0] softmax_out_wire;
+    wire [15:0] softmax_out_wire;
     
     wire [7:0]  quantized_sm_out_wire;
     wire        quantized_sm_valid_out_wire;
@@ -120,7 +109,7 @@ module tb_integration_qkv();
     reg reg_sa_first_iter;
     reg reg_sa_last_tile;
 
-    always @(posedge clk or negedge rst_n) begin
+    /*always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             reg_sa_valid_in    <= 1'b0;
             reg_sa_load_weight <= 1'b0;
@@ -134,6 +123,17 @@ module tb_integration_qkv();
             reg_sa_load_weight_2 <= reg_sa_load_weight;
             reg_sa_valid_in_2    <= reg_sa_valid_in;
             reg_sa_valid_in_3    <= reg_sa_valid_in_2;
+        end
+    end*/
+
+    logic quantize_valid_in_wire_reg;  
+    logic quantize_valid_in_wire_reg_2;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            quantize_valid_in_wire_reg  <= 1'b0;
+        end else begin
+            quantize_valid_in_wire_reg   <= quantize_valid_in_wire;
+            quantize_valid_in_wire_reg_2 <= quantize_valid_in_wire_reg;
         end
     end
 
@@ -157,7 +157,7 @@ module tb_integration_qkv();
 
     // For SM Buffer
     reg         tb_sm_enb;
-    reg [15:0]  tb_sm_addrb;
+    reg [12:0]  tb_sm_addrb;
     wire [255:0] tb_sm_buffer_out;
 
     // =======================================================
@@ -172,7 +172,7 @@ module tb_integration_qkv();
         .layer_done                  (layer_done_wire),
 
         .fetch_start                 (fetch_start_wire),
-        .fetch_buffer_sel            (fetch_buffer_sel_wire[3:0]), // Master Outputs 4 bits
+        .fetch_buffer_sel            (fetch_buffer_sel_wire), // Master Outputs 4 bits
         .fetch_tiles_ctrl            (fetch_tiles_ctrl_wire),
         .fetch_double_buf            (fetch_double_buf_wire),
         .fetch_hold_addr_ptr         (fetch_hold_addr_ptr_wire),
@@ -206,15 +206,7 @@ module tb_integration_qkv();
         .softmax_out_valid           (softmax_out_valid_wire), // Added: Used in WAIT_SOFTMAX
         .softmax_out_last            (softmax_out_last_wire),
         .softmax_busy                (softmax_busy_wire),
-        .softmax_in_ready            (softmax_in_ready_wire),
-
-        .sa_valid_in                 (sa_valid_in_wire),
-        .sa_load_weight              (sa_load_weight_wire),
-        .sa_first_iter               (sa_first_iter_wire),
-        .sa_last_tile                (sa_last_tile_wire),
-        .sa_done                     (sa_done_wire),
-        .sa_valid_out                (sa_valid_out_wire),
-        .sa_pre_valid_out            (sa_pre_valid_out_wire)
+        .softmax_in_ready            (softmax_in_ready_wire)
     );
 
     // --- Fetch Logic ---
@@ -255,38 +247,6 @@ module tb_integration_qkv();
         .busy               (write_busy_wire)
     );
 
-    // --- Q_K_V BRAM ---
-    Q_K_V_buffer u_qkv_buffer (
-        // Port A (Write) - Extracting bits 0 (Q), 1 (K), and 2 (V) from the write enable bus
-        .clka   (clk),
-        .ena    (write_bram_we_wire[0] | write_bram_we_wire[1] | write_bram_we_wire[2]),       
-        .wea    (write_bram_we_wire[0] | write_bram_we_wire[1] | write_bram_we_wire[2]),       
-        .addra  (write_bram_addr_wire),
-        .dina   (sa_data_out_wire[255:0]), 
-        
-        // Port B (Read) - Multiplexed between Testbench Read and Fetch Logic bits 3, 4, 5 (Q, K, V read)
-        .clkb   (clk),
-        .enb    (tb_read_mode ? tb_qkv_enb   : (fetch_bram_en_wire[3] | fetch_bram_en_wire[4] | fetch_bram_en_wire[5])), 
-        .addrb  (tb_read_mode ? tb_qkv_addrb : fetch_bram_addr_wire), 
-        .doutb  (doutb_qkv_wire)       
-    );
-
-    // --- W_B_I BRAM ---
-    W_B_I_Buffer u_wbi_buffer (
-        // Port A (Write) - Controlled by TB 
-        .clka   (clk),
-        .ena    (tb_wbi_we),
-        .wea    (tb_wbi_we),
-        .addra  (tb_wbi_addr),
-        .dina   (tb_wbi_data),
-        
-        // Port B (Read) - Extracting bits 0 (W), 1 (B), and 2 (I) from the fetch enable bus
-        .clkb   (clk),
-        .enb    (fetch_bram_en_wire[0] | fetch_bram_en_wire[1] | fetch_bram_en_wire[2]),
-        .addrb  (fetch_bram_addr_wire),
-        .doutb  (doutb_wbi_wire)
-    );
-
     // --- Q_kt_Buffer buffer
     Q_Kt_buffer u_qkt_buffer (
         // Port A: 256-bit Write Port
@@ -299,7 +259,7 @@ module tb_integration_qkv();
         // Port B: 256-bit Read Port 
         .clkb(clk),
         .enb(tb_read_mode ? tb_qkt_enb   :  fetch_bram_en_wire[6]),
-        .addrb(tb_read_mode ? tb_qkt_addrb : fetch_bram_addr_wire),
+        .addrb(tb_read_mode ? tb_qkt_addrb : fetch_bram_addr_wire[12:0]),
         .doutb(doutb_qkt_wire)
     );
 
@@ -309,7 +269,13 @@ module tb_integration_qkv();
         .s_out(s_out_wire)
     );
 
-    vector_quantize de_quantize_to_piso(
+    vector_quantize #(
+        .VEC_SIZE     (32),
+        .DATAWIDTH_in (8),
+        .DATAWIDTH_out(32),
+        .M_width      (32),
+        .S_width      (8)
+        ) de_quantize_to_piso (
         .clk(clk),
         .rst_n(rst_n),
         .valid_in(quantize_valid_in_wire),
@@ -334,8 +300,8 @@ module tb_integration_qkv();
         .clk(clk),
         .rst_n(rst_n),
         .start(softmax_start_wire),             // Pulse to begin
-        .vec_len_cfg('d512),                    // Runtime vector length
-        .in_valid(softmax_valid_in_wire),
+        .vec_len_cfg(10'd512),                    // Runtime vector length
+        .in_valid(p2s_valid_out_wire),
         .in_ready(softmax_in_ready_wire),
         .in_data(p2s_out_wire),                 // Q5.26 signed
         .out_valid(softmax_out_valid_wire),
@@ -346,7 +312,14 @@ module tb_integration_qkv();
     );
 
     // Quantize SM Output
-    quantize u_quantize (
+    quantize #(
+        .DATAWIDTH_in (16),
+        .DATAWIDTH_out(8),
+        .M_width      (32),
+        .S_width      (8)    
+        )
+        u_quantize 
+        (
         .clk(clk),
         .rst_n(rst_n),
         .valid_in(quantize_u_valid_in_wire),
@@ -372,31 +345,14 @@ module tb_integration_qkv();
         .clka(clk),
         .ena(write_bram_we_wire[4]),
         .wea(write_bram_we_wire[4]),
-        .addra(write_bram_addr_wire),
+        .addra(write_bram_addr_wire[12:0]),
         .dina(s2p_out_wire),
         .clkb(clk),
         .enb(tb_read_mode ? tb_sm_enb : fetch_bram_en_wire[7]),
-        .addrb(tb_read_mode ? tb_sm_addrb : fetch_bram_addr_wire),
+        .addrb(tb_read_mode ? tb_sm_addrb : fetch_bram_addr_wire[12:0]),
         .doutb(tb_sm_buffer_out)
     );
 
-    // --- Systolic Array ---
-    systolic_top u_systolic (
-        .clk             (clk),
-        .rst_n           (rst_n),
-        .in_A            (doutb_qkv_wire), 
-        .weights         (doutb_wbi_wire), 
-        .valid_in        (reg_sa_valid_in_3),
-        .load_weight     (reg_sa_load_weight_2),
-        .first_iteration (reg_sa_first_iter),
-        .last_tile       (reg_sa_last_tile),
-        .ready           (sa_ready_wire),
-        .busy            (sa_busy_wire),
-        .done            (sa_done_wire),
-        .valid_out       (sa_valid_out_wire),
-        .data_out        (sa_data_out_wire),
-        .pre_valid_out   (sa_pre_valid_out_wire)
-    );
 
     // =======+++++++++++++++++++++++++++++++++++++++++++++++++++==================================================================
     // Test Stimulus Sequence & Tasks
@@ -410,7 +366,7 @@ module tb_integration_qkv();
     reg [255:0] output_matrix_512x32_Q [0:511]; // Matrix to store read-back Q/K/V tile
     reg [255:0] output_matrix_512x32_K [0:511];
     reg [255:0] output_matrix_512x32_V [0:511];
-    reg [4095:0] matrix_512x512_QKt [0:511];
+    reg [255:0] matrix_512x512_QKt [0:8191];
 
     // -------------------------------------------------------------------------
     // MAIN INITIAL BLOCK
@@ -452,16 +408,19 @@ module tb_integration_qkv();
             end
             matrix_512x32[row] = {32{k+2}};
         end
-        for (row = 0; row < 32; row = row + 1) begin
+        matrix_512x512_QKt[0] = {32{8'd3}};
+        matrix_512x512_QKt[1] = {32{8'd4}};
+        matrix_512x512_QKt[8191] = {32{8'd7}};
+        for (row = 2; row < 8191; row = row + 1) begin
            matrix_512x512_QKt[row] = {32{8'd5}};
         end
 
         // Load Arrays
-        write_weight(16'd0, matrix_32x32);
-        write_weight(16'd32, matrix_32x32); // db
-        load_input(16'd112, matrix_512x32);
+        //write_weight(16'd0, matrix_32x32);
+        //write_weight(16'd32, matrix_32x32); // db
+        //load_input(16'd112, matrix_512x32);
         // db
-        load_input(16'd624, matrix_512x32);
+        //load_input(16'd624, matrix_512x32);
 
         load_qkt(13'd0, matrix_512x512_QKt);
         
@@ -475,7 +434,7 @@ module tb_integration_qkv();
         repeat(5) @(posedge clk);
         
         // Wait until the controller returns to the IDLE state (assuming IDLE is 2'd0)
-        wait(u_cu.tile_done_counter == 2);
+        wait(u_cu.softmax_row_cnt == 1);
         dump_qkv_buffer_to_file("qkv_computed_results.txt");
         $finish;
     end
@@ -527,24 +486,19 @@ module tb_integration_qkv();
     // -------------------------------------------------------------------------
     task automatic load_qkt(
         input [12:0] start_addr,
-        ref reg [4095:0] data_matrix [0:511]
+        ref reg [255:0] data_matrix [0:8191]
     );
-        integer row_idx;
-        integer chunk_idx;
+        integer in_idx;
         begin
             $display("Task: Loading 512x512 QKt Matrix at address %0d...", start_addr);
             tb_qkt_we = 1;
             
-            // Loop through all 512 rows
-            for (row_idx = 0; row_idx < 512; row_idx = row_idx + 1) begin
-                // Break each 4096-bit row into 16 smaller 256-bit chunks
-                for (chunk_idx = 0; chunk_idx < 16; chunk_idx = chunk_idx + 1) begin
-                    @(posedge clk);
-                    tb_qkt_addra = start_addr + (row_idx * 16) + chunk_idx;
-                    // Extract the exact 256-bit slice for this clock cycle
-                    tb_qkt_data  = data_matrix[row_idx][(chunk_idx * 256) +: 256];
-                end
+            for (in_idx = 0; in_idx < 8192; in_idx = in_idx + 1) begin
+                @(posedge clk);
+                tb_qkt_addra = start_addr + in_idx;
+                tb_qkt_data = data_matrix[in_idx]; 
             end
+
             
             @(posedge clk);
             tb_qkt_we = 0; 
@@ -599,23 +553,7 @@ module tb_integration_qkv();
         end
     endtask
 
-    // =======================================================
-    // Monitor: Dump Systolic Array Weights
     
-    // 1. Create a normal 2D array in the testbench to hold the probed values
-    wire [7:0] probed_pe_weights [0:31][0:31];
-    
-    // 2. Use a genvar loop to map the internal PE weights to our testbench array.
-    // Since genvars are evaluated at compile-time, this is perfectly legal!
-    genvar gr, gc;
-    generate
-        for (gr = 0; gr < 32; gr = gr + 1) begin : probe_row
-            for (gc = 0; gc < 32; gc = gc + 1) begin : probe_col
-                // Map the internal PE weight register to the TB array
-                assign probed_pe_weights[gr][gc] = u_systolic.u_systolic.row_loop[gr].col_loop[gc].pe_inst.weight;
-            end
-        end
-    endgenerate
 
     // 3. Print the array using standard variables
     always_comb begin
@@ -623,33 +561,13 @@ module tb_integration_qkv();
         $display("   SYSTOLIC ARRAY WEIGHT REGISTERS LATCHED");
         $display("==================================================");
         
-        $display("tile_counter = %0d", u_cu.tile_done_counter);
+        /*$display("tile_counter = %0d", u_cu.tile_done_counter);
         $display("PE[0][0] Weight = %h", u_systolic.u_systolic.row_loop[0].col_loop[0].pe_inst.weight); // 0
         $display("PE[1][0] Weight = %h", u_systolic.u_systolic.row_loop[1].col_loop[0].pe_inst.weight); // 0
         $display("PE[2][0] Weight = %h", u_systolic.u_systolic.row_loop[2].col_loop[0].pe_inst.weight); // 0
         $display("PE[31][0] Weight = %h", u_systolic.u_systolic.row_loop[31].col_loop[0].pe_inst.weight); // 31 
-        $display("==================================================\n");
+        $display("==================================================\n");*/
     end
 
-    // =======================================================
-    // Monitor: Dump Systolic Array Output on valid_out
-    // =======================================================
-    integer out_idx;
-    always @(posedge clk) begin
-        if (rst_n && sa_valid_out_wire) begin
-            $display("\n--------------------------------------------------");
-            $display("Time: %0t | Systolic Array Valid Output Detected", $time);
-            $display("--------------------------------------------------");
-            // Print the raw 1024-bit vector
-            $display("Raw 1024-bit Data: %h", sa_data_out_wire);
-            $display("--- Broken down into 32-bit elements ---");
-            
-            // Break down the 1024-bit output into 32 separate 32-bit words
-            // using the +: indexed part-select operator
-            for (out_idx = 0; out_idx < 32; out_idx = out_idx + 1) begin
-                $display("  SA_OUT[%0d] = %h", out_idx, sa_data_out_wire[(out_idx * 32) +: 32]);
-            end
-            $display("--------------------------------------------------\n");
-        end
-    end
+
 endmodule
