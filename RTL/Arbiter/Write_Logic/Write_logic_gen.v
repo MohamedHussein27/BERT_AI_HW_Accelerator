@@ -47,7 +47,7 @@ module write_logic_gen #(
     localparam COUNTER_WIDTH      = $clog2(MAX_DEPTH);
     
     reg [COUNTER_WIDTH-1:0]      write_offset; // Tracks total writes for the buffer
-    reg [7:0]                    tile_offset;  // Tracks writes for the current tile
+    reg [8:0]                    tile_offset;  // Tracks writes for the current tile
     reg [15:0]                   WRITE_START_OFFSET; // Base address from Buffer_Select
 
     // =====================
@@ -75,9 +75,13 @@ module write_logic_gen #(
                 end
                 
                 // incerement when hit the max if the tile
-                if (write_offset == TILE_DEPTH - 1)
-                    tile_offset <= tile_offset + 1;
-                    
+                if (tile_offset == TILE_DEPTH - 1)begin
+                    tile_offset = '0;
+                end
+                else begin
+                    tile_offset <= tile_offset + 1;    
+                end
+                
             end
         end
     end
@@ -106,18 +110,16 @@ module write_logic_gen #(
                 if (sipo_mode && (tile_offset == 16 - 1)) begin // 16 = 512 / 32 which we will know that this is the last row to be written the SM buffer
                     next_state = DONE_ALL;
                 end
-
-                // Check if we just finished a standard tile
+                
+                // Check if we just finished the very last element of the entire buffer
                 else if (tile_offset == TILE_DEPTH - 1) begin
                     next_state = DONE;
                 end
-                
-                // Check if we just finished the very last element of the entire buffer
+
+                // Check if we just finished a standard tile
                 else if ((write_offset == MAX_DEPTH - 1) && !sipo_mode) begin
                     next_state = DONE_ALL;
                 end
-
-                
                 // Otherwise, keep writing
                 else begin
                     next_state = WRITING;
