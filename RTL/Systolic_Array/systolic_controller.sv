@@ -6,7 +6,7 @@ module systolic_controller #(
     parameter ADDR_WIDTH   = 10
 ) (
     input  logic clk,
-    input  logic rst_n,
+    input  logic controller_rst_n,
     input  logic valid_in,
     input  logic load_weight,
     input  logic last_tile,
@@ -20,6 +20,7 @@ module systolic_controller #(
 
     // Status signals
     output logic valid_out,
+    output logic pre_valid_out,
     output logic ready,
     output logic busy,
     output logic done
@@ -42,10 +43,11 @@ module systolic_controller #(
 
     // flags 
     logic forcing_wt;
+    logic pre_valid_out_wire;
     
     // State Register
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin 
+    always_ff @(posedge clk) begin
+        if (!controller_rst_n) begin 
             cs <= IDLE;
             forcing_wt <= 1'b1;
         end
@@ -93,12 +95,13 @@ module systolic_controller #(
     always_comb begin
         case (cs)
             IDLE: begin
-                sys_wt_en = 1'b0;
+                sys_wt_en = (cs == IDLE && ns == LOADING_WEIGHT)? 1'b1 : 1'b0;
                 rd_addr    = (valid_in)? 1 : '0;
                 wr_addr    = '0;
                 we         = 1'b0;
                 done       = 1'b0;
                 busy       = 1'b0;
+                pre_valid_out_wire = 1'b0;
                 ready      = 1'b1;
             end
 
@@ -116,6 +119,8 @@ module systolic_controller #(
                 sys_wt_en = 1'b0;
                 rd_addr   = rd_addr_reg + 1;
                 wr_addr   = wr_addr_reg;
+                pre_valid_out_wire = (cycle_cnt >= ((last_tile)? 2*N_SIZE-3:N_SIZE-2)) && 
+                                (cycle_cnt <num_of_raws + 2*N_SIZE - 3);
                 we   = (cycle_cnt >= ((last_tile)? 2*N_SIZE-2:N_SIZE-1)) && 
                        (cycle_cnt <num_of_raws + 2*N_SIZE - 2);
                 done = (cycle_cnt == num_of_raws + 2*N_SIZE - 2);
@@ -126,8 +131,8 @@ module systolic_controller #(
     end
 
     // Address Registers
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always_ff @(posedge clk) begin
+        if (!controller_rst_n) begin
             rd_addr_reg <= '0;
             wr_addr_reg <= '0;
         end
@@ -149,8 +154,8 @@ module systolic_controller #(
     end
 
     // Cycle counter
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
+    always_ff @(posedge clk) begin
+        if (!controller_rst_n)
             cycle_cnt <= '0;
         else if (cs == COMPUTE && valid_in)
             cycle_cnt <= cycle_cnt + 1'b1;
@@ -159,8 +164,8 @@ module systolic_controller #(
     end
 
     // Weight-loading counter
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
+    always_ff @(posedge clk) begin
+        if (!controller_rst_n)
             wt_load_cnt <= '0;
         else if (ns == LOADING_WEIGHT)
             wt_load_cnt <= wt_load_cnt + 1'b1;
@@ -169,5 +174,6 @@ module systolic_controller #(
     end
 
     assign wt_row_sel = wt_load_cnt;
+    assign pre_valid_out = (last_tile) ? pre_valid_out_wire : 0;
     assign valid_out = (last_tile)? we : 0;
 endmodule

@@ -143,6 +143,8 @@ class QuantizedLinear(nn.Module):
     """
     Linear layer with per-tensor fake-quantization on both input and weight.
     Records input scale for hardware calibration during evaluation.
+    Bias is quantized to INT8 (bias_scale = input_scale × weight_scale,
+    clamped to the INT8 range [-128, 127]).
     """
 
     def __init__(self, in_features, out_features, bias=True, layer_name=''):
@@ -172,9 +174,25 @@ class QuantizedLinear(nn.Module):
                 input_scale = abs_max / 127.0 if abs_max > 0 else 1.0
                 scale_tracker.record_input_scale(self.layer_name, input_scale)
 
-        q_input  = Quantize.apply(input)         # per-tensor fake-quant
-        q_weight = Quantize.apply(self.weight)   # per-tensor fake-quant
-        return F.linear(q_input, q_weight, self.bias)
+        q_input  = Quantize.apply(input)         # per-tensor fake-quant → INT8
+        q_weight = Quantize.apply(self.weight)   # per-tensor fake-quant → INT8
+
+        # ── Bias fake-quantization to INT8 ────────────────────────────────────
+        # bias_scale = input_scale × weight_scale (mirrors hardware accumulation)
+        if self.bias is not None:
+            with torch.no_grad():
+                w_abs_max    = self.weight.abs().max().item()
+                w_scale      = w_abs_max / 127.0 if w_abs_max > 0 else 1.0
+                in_abs_max   = input.abs().max().item()
+                in_scale     = in_abs_max / 127.0 if in_abs_max > 0 else 1.0
+                bias_scale   = in_scale * w_scale
+            # Snap bias to INT8 grid (fake-quant, keeps float dtype for autograd)
+            q_bias = Quantize.apply(self.bias / bias_scale) * bias_scale  \
+                     if bias_scale > 1e-12 else self.bias
+        else:
+            q_bias = None
+
+        return F.linear(q_input, q_weight, q_bias)
 
 
 # ==============================================================================
@@ -233,8 +251,7 @@ class PLASoftmax(nn.Module):
         exps          = self.pla_exp(shifted_fx)
         softmax_out   = exps / (exps.sum(dim=-1, keepdim=True) + 1e-9)
         # PDF: "Softmax Quantization Q1.15 to 8 bit"
-        # Snap to Q1.15 grid
-        # before requantizing to INT8.
+        # Snap to Q1.15 grid before requantizing to INT8.
         softmax_q1_15 = to_fixed_point(softmax_out, 16, 15)   # Q1.15 intermediate
         return Quantize.apply(softmax_q1_15)                   # Q1.15 → INT8
 
@@ -273,84 +290,185 @@ class ApproximateLayerNorm(nn.Module):
 
 # ==============================================================================
 # GCU — GELU COMPUTE UNIT
+# Replaced with RTL-accurate pipeline (EU1 → DU → EU2) from PLA_EU / GELU.sv.
 
 class ExponentialUnit(nn.Module):
+    """
+    Exponential Unit matching RTL EU.sv pipeline and PLA_EU.py LUT.
+    Stages: Extract int/frac → LUT lookup → Mantissa (K·x_frac + B) →
+    Q10.22→Q48.16 conversion → Asymmetric barrel shifter
+    """
     def __init__(self, num_segments=8):
         super().__init__()
         self.num_segments = num_segments
-        coeffs = []
+        self.Q_IN  = 22          # Input fractional bits  (Q10.22)
+        self.Q_OUT = 16          # Output fractional bits (Q48.16 in 64-bit)
+        self.Q_SHIFT = self.Q_IN - self.Q_OUT  # = 6 bits for Q22→Q16 conversion
+
+        # ── Generate K and B coefficients using PLA_EU.py algorithm ──────────
+        k_coeffs = []
+        b_coeffs = []
+        segment_size = 1.0 / num_segments
         for i in range(num_segments):
-            x_s, x_e = i / num_segments, (i + 1) / num_segments
-            y_s, y_e = 2 ** x_s, 2 ** x_e
-            K = (y_e - y_s) / (x_e - x_s)
-            B = y_s - K * x_s
-            coeffs.append([K, B])
-        self.register_buffer('coefficients',
-                             torch.tensor(coeffs, dtype=torch.float32))
+            x_start = i * segment_size
+            x_end   = (i + 1) * segment_size
+            y_start = 2 ** x_start
+            y_end   = 2 ** x_end
+            K = (y_end - y_start) / segment_size   # slope
+            B = y_start - K * x_start               # intercept
+            k_coeffs.append(K)
+            b_coeffs.append(B)
+
+        self.register_buffer('k_lut', torch.tensor(k_coeffs, dtype=torch.float32))
+        self.register_buffer('b_lut', torch.tensor(b_coeffs, dtype=torch.float32))
 
     def forward(self, x, use_log2e_scaling=True):
+        """
+        RTL Pipeline matching EU.sv:
+        1. Apply log2(e) scaling if needed
+        2. Extract integer part
+        3. Extract fractional part
+        4. Get segment index from top 3 bits of fractional part
+        5. LUT lookup: K, B = LUT[segment_index]
+        6. Compute mantissa: K * x_frac + B  (Q10.22 equivalent)
+        7. Asymmetric barrel shifter: left-shift if s_int >= 0, else right-shift
+        Output is in Q48.16 format.
+        """
+        # Stage 1: Apply log2(e) scaling
         if use_log2e_scaling:
-            x = x * (1.0 + 0.5 - 0.0625)    # ≈ log2(e)
-        x_int   = torch.floor(x).long()
-        x_frac  = torch.clamp(x - x_int.float(), 0, 0.999999)
+            x = x * math.log2(math.e)  # precise log2(e) ≈ 1.4427
+
+        # Stage 2–3: Extract integer and fractional parts
+        x_int  = torch.floor(x).long()
+        x_frac = torch.clamp(x - x_int.float(), 0, 0.999999)
+
+        # Stage 4: Segment index from top bits of fractional part → [0, num_segments)
         seg_idx = torch.clamp(
             torch.floor(x_frac * self.num_segments).long(),
             0, self.num_segments - 1
         )
-        K = self.coefficients[seg_idx, 0]
-        B = self.coefficients[seg_idx, 1]
-        return (K * x_frac + B) * (2.0 ** torch.clamp(x_int, -15, 15).float())
+
+        # Stage 5: LUT lookup
+        K = self.k_lut[seg_idx]  # slope
+        B = self.b_lut[seg_idx]  # intercept
+
+        # Stage 6: Mantissa = K * x_frac + B  (Q10.22 equivalent in float)
+        mantissa = K * x_frac + B
+
+        # Stage 7 (implicit): Q10.22 → Q48.16 right-shift by Q_SHIFT=6 is
+        # represented naturally in floating-point; the barrel shifter below
+        # applies the integer-part scaling.
+
+        # Stage 8: Asymmetric barrel shifter
+        #   s_int >= 0  →  mantissa << s_int  (left shift  = multiply by 2^s_int)
+        #   s_int <  0  →  mantissa >> -s_int (right shift = divide  by 2^-s_int)
+        x_int_clamped = torch.clamp(x_int, -15, 15)
+        result = torch.where(
+            x_int >= 0,
+            mantissa * (2.0 ** x_int_clamped.float()),
+            mantissa / (2.0 ** torch.clamp(-x_int_clamped, 0, 15).float())
+        )
+        return result   # Q48.16 format
 
 
 class DivisionUnit(nn.Module):
+    """
+    Division Unit matching RTL DU.sv.
+    Computes exponent = (m1 + s1) - (m2 + s2) for EU2 to evaluate.
+    """
     def __init__(self):
         super().__init__()
-        self.eu = ExponentialUnit()
+        self.Q = 16   # fractional bits for Q48.16
 
     def leading_one_detector(self, x):
+        """
+        Leading One Detector: finds MSB position (w) and normalised mantissa (m).
+        Matches RTL DU.sv calculation.
+        Returns:
+            w: MSB bit position (integer)
+            m: Normalised mantissa in [1.0, 2.0)
+        """
         abs_x  = torch.clamp(x.abs(), min=1e-8)
         log2_x = torch.log2(abs_x)
         w      = torch.floor(log2_x).long()
-        m      = (log2_x - w.float()) + 1.0
+        m      = (log2_x - w.float()) + 1.0   # normalised mantissa
         return w, m
 
     def forward(self, numerator, denominator, add_one_to_denominator=False):
+        """
+        RTL: exponent = (m1 + s1) - (m2 + s2)
+             s_i = (w_i - Q)
+        Returns exponent (for EU2) and sign.
+        """
         if add_one_to_denominator:
             denominator = 1.0 + denominator
-        w1, m1   = self.leading_one_detector(numerator)
-        w2, m2   = self.leading_one_detector(denominator)
-        exponent = (m1 + w1.float()) - (m2 + w2.float())
-        result   = self.eu(exponent, use_log2e_scaling=False)
-        return result * (torch.sign(numerator) * torch.sign(denominator))
+
+        w1, m1 = self.leading_one_detector(numerator)
+        w2, m2 = self.leading_one_detector(denominator)
+
+        s1 = (w1.float() - self.Q)
+        s2 = (w2.float() - self.Q)
+
+        exponent = (m1 + s1) - (m2 + s2)
+        sign     = torch.sign(numerator) * torch.sign(denominator)
+        return exponent, sign
 
 
 class PolynomialUnit(nn.Module):
+    """
+    Polynomial Unit: s(x) = -2·log2(e)·√(2/π)·(x + 0.044715·x³)
+    Matches RTL PU.sv / GELU reference.
+    """
     def __init__(self):
         super().__init__()
-        self.sqrt_2_over_pi = 0.8
-        self.cubic_coeff    = 0.03125 + 0.03125
-        self.s_x_coeff      = -10.0 - 0.25 - 0.0625
+        self.log2_e         = math.log2(math.e)            # ≈ 1.4427
+        self.sqrt_2_over_pi = math.sqrt(2.0 / math.pi)    # ≈ 0.7979
+        self.coefficient    = -2.0 * self.log2_e * self.sqrt_2_over_pi  # ≈ -2.3046
+        self.cubic_coeff    = 0.044715
 
     def forward(self, x):
-        h_x = self.sqrt_2_over_pi * x + self.cubic_coeff * (x ** 3)
-        return self.s_x_coeff * h_x
+        inner = x + self.cubic_coeff * (x ** 3)
+        return self.coefficient * inner
 
 
 class GCU(nn.Module):
-    """GELU Compute Unit — hardware polynomial approximation."""
+    """
+    GELU Compute Unit — RTL-accurate hardware pipeline (EU1 → DU → EU2).
+
+    Input format:  Q10.22  (snapped by FeedForward before calling GCU)
+    Output format: Q48.16  (EU2 output; snapped to INT8 by FeedForward after)
+
+    Pipeline matching GELU.sv:
+      Stage 1: PolynomialUnit  → s(x)
+      Stage 2: EU1             → exp(s(x))          [Q48.16]
+      Stage 3: DU              → exponent & sign     (x / (1 + exp(s(x))))
+      Stage 4: EU2             → final result        [Q48.16]
+    """
     def __init__(self):
         super().__init__()
         self.polynomial_unit = PolynomialUnit()
-        self.eu              = ExponentialUnit()
-        self.du              = DivisionUnit()
+        self.eu1             = ExponentialUnit()   # Stage 2
+        self.du              = DivisionUnit()      # Stage 3
+        self.eu2             = ExponentialUnit()   # Stage 4
 
     def forward(self, x):
+        # x is expected in Q10.22 format (enforced by FeedForward)
         if scale_tracker.enabled:
             with torch.no_grad():
                 scale_tracker.record_gelu_input(x)
-        s_x      = self.polynomial_unit(x)
-        exp_term = self.eu(-s_x, use_log2e_scaling=False)
-        return self.du(x, exp_term, add_one_to_denominator=True)
+
+        # Stage 1: s(x) = -2·log2(e)·√(2/π)·(x + 0.044715·x³)
+        s_x = self.polynomial_unit(x)
+
+        # Stage 2: EU1 — compute exp(s(x))  (no additional log2(e) scaling)
+        exp_term = self.eu1(s_x, use_log2e_scaling=False)
+
+        # Stage 3: DU — exponent = (m1+s1) - (m2+s2), plus sign
+        exponent, sign = self.du(x, exp_term, add_one_to_denominator=True)
+
+        # Stage 4: EU2 — evaluate 2^exponent  (result in Q48.16)
+        result = self.eu2(exponent, use_log2e_scaling=False)
+        return result * sign   # Q48.16 output
 
 
 # ==============================================================================
@@ -434,7 +552,7 @@ class MultiHeadSelfAttention(nn.Module):
         B, H, Sq, D = q_full.shape
         Sk           = k_full.size(2)
 
-        # ── QKᵀ GeMM (INT8×INT8 → INT32) 
+        # ── QKᵀ GeMM (INT8×INT8 → INT32)
         attn_scores = torch.zeros(B, H, Sq, Sk, device=hidden_states.device)
         for i in range(0, Sq, TILE_SIZE):
             for j in range(0, Sk, TILE_SIZE):
@@ -448,19 +566,19 @@ class MultiHeadSelfAttention(nn.Module):
         if attention_mask is not None:
             attn_scores = attn_scores + attention_mask
 
-        # ── HARDWARE ALIGNMENT FIX 1: Quantize QxK^T INT32 to INT8 
+        # ── Quantize QxKᵀ INT32 → INT8
         if scale_tracker.enabled:
             scale_tracker.record_activation_scale(f'{b}.qkt_buffer.output_scale', attn_scores)
         attn_scores_int8 = Quantize.apply(attn_scores)
 
-        # PLASoftmax: Fetches INT8 → De-Quantizes to Q5.26 internally → PLA-exp → softmax → Quantize → INT8
+        # PLASoftmax: INT8 → de-quantise to Q5.26 → PLA-exp → softmax → INT8
         attn_probs_raw = self.softmax(attn_scores_int8)
-        
+
         if scale_tracker.enabled:
             scale_tracker.record_activation_scale(f'{b}.softmax.output_scale', attn_probs_raw)
         attn_probs = self.attn_dropout(attn_probs_raw)
 
-        # ── ·V GeMM (INT8×INT8 → INT32) → Quantize → INT8 
+        # ── ·V GeMM (INT8×INT8 → INT32) → Quantize → INT8
         context = torch.zeros_like(v_full)
         for i in range(0, Sq, TILE_SIZE):
             context[:, :, i:i+TILE_SIZE, :] = torch.matmul(
@@ -472,7 +590,7 @@ class MultiHeadSelfAttention(nn.Module):
             scale_tracker.record_activation_scale(f'{b}.ctx.output_scale', context_merged)
         context = Quantize.apply(context_merged)
 
-        # ── Wo GeMM (INT8×INT8 → INT32) → Bias(INT32) → Quantize → INT8
+        # ── Wo GeMM (INT8×INT8 → INT32) → Bias(INT8) → Quantize → INT8
         wo_out = self.out(context)
         if scale_tracker.enabled:
             scale_tracker.record_activation_scale(f'{b}.out.output_scale', wo_out)
@@ -499,32 +617,40 @@ class FeedForward(nn.Module):
         TILE_SIZE = 32
         B, S, _ = x.shape
 
-        # ── ffn_1 GeMM (INT8×INT8 → INT32)
+        # ── ffn_1 GeMM (INT8×INT8 → INT32, bias INT8)
         out1 = torch.zeros(B, S, self.dense_1.out_features, device=x.device)
         for i in range(0, S, TILE_SIZE):
             out1[:, i:i+TILE_SIZE, :] = self.dense_1(x[:, i:i+TILE_SIZE, :])
 
-        # ── HARDWARE ALIGNMENT FIX 2: Quantize 32 int to 8 int -> Intermediate Buffer
+        # ── Quantize ffn_1 INT32 → INT8 intermediate buffer
         if scale_tracker.enabled:
-            scale_tracker.record_activation_scale(f'{self.base}.intermediate_buffer.output_scale', out1)
+            scale_tracker.record_activation_scale(
+                f'{self.base}.intermediate_buffer.output_scale', out1)
         out1_int8 = Quantize.apply(out1)
 
-        # Fetch from Intermediate Buffer -> De-Quantize INT8 to Q10.22 -> GELU
-        out1_q10_22  = to_fixed_point(out1_int8, 32, 22)      
-        gcu_out      = self.gcu(out1_q10_22)
-        gcu_q48_16   = to_fixed_point(gcu_out, 64, 16)      # PDF: GCU output → Q48.16
-        if scale_tracker.enabled:
-            scale_tracker.record_activation_scale(f'{self.base}.gcu.output_scale', gcu_q48_16)
-        x = Quantize.apply(gcu_q48_16)                       # Q48.16 → INT8
+        # ── De-quantise INT8 → Q10.22  (GCU input format)
+        out1_q10_22 = to_fixed_point(out1_int8, 32, 22)    # Q10.22
 
-        # ── ffn_2 GeMM (INT8×INT8 → INT32) → Bias(INT32) → Quantize → INT8
+        # ── GCU: Q10.22 input → Q48.16 output  (EU1 → DU → EU2 pipeline)
+        gcu_out    = self.gcu(out1_q10_22)                  # Q48.16
+
+        # ── Snap GCU output to Q48.16 grid (64-bit container, 16 frac bits)
+        gcu_q48_16 = to_fixed_point(gcu_out, 64, 16)        # Q48.16
+        if scale_tracker.enabled:
+            scale_tracker.record_activation_scale(
+                f'{self.base}.gcu.output_scale', gcu_q48_16)
+
+        # ── Q48.16 → INT8  (requantize before ffn_2)
+        x = Quantize.apply(gcu_q48_16)
+
+        # ── ffn_2 GeMM (INT8×INT8 → INT32, bias INT8) → Quantize → INT8
         out2 = torch.zeros(B, S, self.dense_2.out_features, device=x.device)
         for i in range(0, S, TILE_SIZE):
             out2[:, i:i+TILE_SIZE, :] = self.dense_2(x[:, i:i+TILE_SIZE, :])
 
-        # Quantize ffn_2 output → INT8 (Output Buffer)
         if scale_tracker.enabled:
-            scale_tracker.record_activation_scale(f'{self.base}.dense_2.output_scale', out2)
+            scale_tracker.record_activation_scale(
+                f'{self.base}.dense_2.output_scale', out2)
         return self.dropout(Quantize.apply(out2))
 
 
@@ -547,14 +673,15 @@ class TransformerEncoderLayer(nn.Module):
         p = f'bert.encoder.layers.{self.layer_id}'
         attn_output  = self.attention(x, attention_mask=attention_mask)
 
-        # ── Residual Add 1: INT8 + INT8 → dequantize → LayerNorm → INT8
+        # ── Residual Add 1: INT8 + INT8 → de-quantise → LayerNorm → INT8
         if scale_tracker.enabled:
             scale_tracker.record_activation_scale(f'{p}.residual1.x_scale',    x)
             scale_tracker.record_activation_scale(f'{p}.residual1.attn_scale', attn_output)
         norm_input_1 = Quantize.apply(x) + Quantize.apply(attn_output)
         ln1_out = self.attn_layer_norm(norm_input_1)
         if scale_tracker.enabled:
-            scale_tracker.record_activation_scale(f'{p}.attn_layer_norm.output_scale', ln1_out)
+            scale_tracker.record_activation_scale(
+                f'{p}.attn_layer_norm.output_scale', ln1_out)
         x = Quantize.apply(ln1_out)
 
         ffn_output   = self.ffn(x)
@@ -566,7 +693,8 @@ class TransformerEncoderLayer(nn.Module):
         norm_input_2 = Quantize.apply(x) + Quantize.apply(ffn_output)
         ln2_out = self.ffn_layer_norm(norm_input_2)
         if scale_tracker.enabled:
-            scale_tracker.record_activation_scale(f'{p}.ffn_layer_norm.output_scale', ln2_out)
+            scale_tracker.record_activation_scale(
+                f'{p}.ffn_layer_norm.output_scale', ln2_out)
         x = Quantize.apply(ln2_out)
         return x
 
@@ -606,7 +734,7 @@ class BertModel(nn.Module):
             intermediate_size    = intermediate_size,
             dropout              = dropout,
         )
-        
+
         # Pooler is standard float linear (not quantized — matches original)
         self.pooler            = nn.Linear(hidden_size, hidden_size)
         self.pooler_activation = nn.Tanh()
@@ -651,20 +779,60 @@ class BertForSequenceClassification(nn.Module):
 # WEIGHT EXTRACTION
 def extract_and_save_quantized_weights(model: nn.Module, file_path: str):
     """
-    Weights:  INT8  + per-tensor weight_scale
-    Biases:   INT32 + bias_scale  (= input_scale × weight_scale)
-    Scales:   collected by ScaleTracker during evaluation (per-tensor max)
+    Saves three artefacts:
+      <file_path>                          — INT8 weights + INT8 biases + scales (.npz)
+      <file_path>_input_scales.npz         — per-layer input scales  (median of calibration)
+      <file_path>_activation_scales.npz   — ALL activation-node scales (median of calibration)
+      <file_path>_scale_metadata.json     — full per-node statistics (mean/median/p95/min/max)
+
+    Every recorded scale — weight, bias, input, activation — is printed in a
+    structured report so nothing is silently dropped.
     """
     import json
 
     torch.cuda.empty_cache()
     quantized_state_dict = {}
 
-    print("\n" + "=" * 70)
-    print("EXTRACTING WEIGHTS AND SCALES FOR HARDWARE")
-    print("=" * 70)
-
+    # ── Pull everything ScaleTracker collected ─────────────────────────────────
     scale_stats = scale_tracker.get_statistics()
+
+    # Separate the three pools that live inside scale_stats:
+    #   1. layer_input_scales  →  keys that are plain layer paths
+    #      (e.g. 'bert.encoder.layers.0.attention.q')
+    #   2. activation_scales   →  keys that end with a node tag
+    #      (e.g. '...q.output_scale', '...residual1.x_scale', '...gcu.output_scale')
+    #   3. gelu_input_range    →  single special entry with a different structure
+    #
+    # We distinguish (1) from (2) by checking for a '.' in the last path segment:
+    #   layer paths end in a short identifier like 'q', 'out', 'dense_1', 'classifier'
+    #   activation keys end in something like 'output_scale', 'x_scale', 'ffn_scale'
+    ACTIVATION_SUFFIXES = (
+        'output_scale', 'x_scale', 'attn_scale', 'ffn_scale',
+        'ctx_scale', 'qkt_buffer.output_scale',
+    )
+
+    input_scale_stats  = {}   # layer_input_scales entries
+    act_scale_stats    = {}   # activation_scales  entries
+
+    for key, stat in scale_stats.items():
+        if key == 'gelu_input_range':
+            continue
+        if not isinstance(stat, dict) or 'median' not in stat:
+            continue
+        last_segment = key.rsplit('.', 1)[-1]
+        if any(key.endswith(sfx) for sfx in ACTIVATION_SUFFIXES):
+            act_scale_stats[key] = stat
+        else:
+            input_scale_stats[key] = stat
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 1 — WEIGHT & BIAS QUANTIZATION
+    # ══════════════════════════════════════════════════════════════════════════
+    print("\n" + "=" * 70)
+    print("SECTION 1 — WEIGHT & BIAS QUANTIZATION  (INT8)")
+    print("=" * 70)
+    print(f"  {'Parameter':<60} {'weight_scale':>14}  {'input_scale':>14}  {'bias_scale':>14}")
+    print("  " + "-" * 106)
 
     for name, param in model.named_parameters():
         if not param.requires_grad:
@@ -672,30 +840,31 @@ def extract_and_save_quantized_weights(model: nn.Module, file_path: str):
 
         param_data = param.detach().cpu().numpy()
 
-        # ── Weights (2D matrices → INT8) ──────────────────────────────────────
+        # ── Weights (2-D → INT8) ──────────────────────────────────────────────
         if 'weight' in name and param_data.ndim == 2:
             abs_max      = np.abs(param_data).max()
             weight_scale = abs_max / 127.0 if abs_max > 0 else 1.0
 
             q_weight = np.round(param_data / weight_scale).clip(-128, 127).astype(np.int8)
-            quantized_state_dict[name]               = q_weight
-            quantized_state_dict[f'{name}.scale']    = np.float32(weight_scale)
+            quantized_state_dict[name]            = q_weight
+            quantized_state_dict[f'{name}.scale'] = np.float32(weight_scale)
 
-            # Per-tensor input scale from ScaleTracker
+            # Input scale: median from ScaleTracker calibration batches
             layer_key = name.replace('.weight', '')
-            if layer_key in scale_stats and 'median' in scale_stats[layer_key]:
-                input_scale = scale_stats[layer_key]['median']
-                quantized_state_dict[f'{name}.input_scale'] = np.float32(input_scale)
-                print(f"  {name}: weight_scale={weight_scale:.6e}, "
-                      f"input_scale={input_scale:.6e}")
+            if layer_key in input_scale_stats:
+                input_scale = input_scale_stats[layer_key]['median']
+                calibrated  = True
             else:
-                quantized_state_dict[f'{name}.input_scale'] = np.float32(1.0)
-                print(f"  {name}: weight_scale={weight_scale:.6e}, "
-                      f"input_scale=1.0 (default)")
+                input_scale = 1.0
+                calibrated  = False
+            quantized_state_dict[f'{name}.input_scale'] = np.float32(input_scale)
 
-        # ── Biases (1D → INT32, scale = input_scale × weight_scale) ──────────
+            tag = '' if calibrated else '  ← default (no calibration data)'
+            print(f"  {name:<60} {weight_scale:>14.6e}  {input_scale:>14.6e}{tag}")
+
+        # ── Biases (1-D → INT8, scale = input_scale × weight_scale) ──────────
         elif 'bias' in name and param_data.ndim == 1:
-            weight_name     = name.replace('.bias', '.weight')
+            weight_name      = name.replace('.bias', '.weight')
             weight_scale_key = f'{weight_name}.scale'
             input_scale_key  = f'{weight_name}.input_scale'
 
@@ -705,18 +874,17 @@ def extract_and_save_quantized_weights(model: nn.Module, file_path: str):
                 input_scale  = float(quantized_state_dict[input_scale_key])
                 bias_scale   = input_scale * weight_scale
 
-                bias_int32   = np.round(param_data / bias_scale).clip(
-                    -2147483648, 2147483647).astype(np.int32)
+                bias_int8 = np.round(param_data / bias_scale).clip(
+                    -128, 127).astype(np.int8)
 
-                quantized_state_dict[name]             = bias_int32
-                quantized_state_dict[f'{name}.scale']  = np.float32(bias_scale)
-                print(f"  {name}: INT32, bias_scale={bias_scale:.6e}")
+                quantized_state_dict[name]            = bias_int8
+                quantized_state_dict[f'{name}.scale'] = np.float32(bias_scale)
+                print(f"  {name:<60} {'INT8':>14}  {'':>14}  {bias_scale:>14.6e}")
             else:
-                # Fallback
                 quantized_state_dict[name] = param_data.astype(np.float32)
-                print(f"  {name}: FP32 (fallback)")
+                print(f"  {name:<60} {'FP32 fallback':>14}")
 
-        # ── Other parameters (embeddings 2D, LayerNorm, etc.) ─────────────────
+        # ── Other parameters (embeddings ≥2-D, LayerNorm 1-D, etc.) ──────────
         else:
             if param_data.ndim >= 2:
                 abs_max = np.abs(param_data).max()
@@ -727,68 +895,130 @@ def extract_and_save_quantized_weights(model: nn.Module, file_path: str):
             else:
                 quantized_state_dict[name] = param_data.astype(np.float32)
 
-    # Save .npz
+    # Save weights .npz
     np.savez_compressed(file_path, **quantized_state_dict)
-    print(f"\n  Saved quantized weights to: {file_path}")
+    print(f"\n  Saved weights → {file_path}")
 
-    # ── Save activation scales (median across calibration batches) to npz ─────
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 2 — INPUT SCALES  (layer_input_scales from ScaleTracker)
+    # ══════════════════════════════════════════════════════════════════════════
+    print("\n" + "=" * 70)
+    print("SECTION 2 — LAYER INPUT SCALES  (calibrated over eval batches)")
+    print("=" * 70)
+    print(f"  {'Layer':<60} {'median':>12} {'mean':>12} {'p95':>12} {'min':>12} {'max':>12}  samples")
+    print("  " + "-" * 122)
+
+    input_scales_npz = {}
+    # Sort by layer name so encoder layers appear in order
+    for layer_key in sorted(input_scale_stats.keys()):
+        stat = input_scale_stats[layer_key]
+        input_scales_npz[layer_key] = np.float32(stat['median'])
+        print(f"  {layer_key:<60} "
+              f"{stat['median']:>12.6e} "
+              f"{stat['mean']:>12.6e} "
+              f"{stat['p95']:>12.6e} "
+              f"{stat['min']:>12.6e} "
+              f"{stat['max']:>12.6e}  "
+              f"{stat['samples']}")
+
+    input_scales_file = file_path.replace('.npz', '_input_scales.npz')
+    np.savez_compressed(input_scales_file, **input_scales_npz)
+    print(f"\n  Saved {len(input_scales_npz)} input scales → {input_scales_file}")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 3 — ACTIVATION SCALES  (ALL nodes, no filtering)
+    # ══════════════════════════════════════════════════════════════════════════
+    print("\n" + "=" * 70)
+    print("SECTION 3 — ACTIVATION SCALES  (all Quantize.apply sites)")
+    print("=" * 70)
+    print(f"  {'Node':<68} {'median':>12} {'mean':>12} {'p95':>12} {'min':>12} {'max':>12}  samples")
+    print("  " + "-" * 130)
+
+    act_scales_npz = {}
+    # Group by encoder layer for readable output
+    prev_layer = None
+    for node_key in sorted(act_scale_stats.keys()):
+        stat = act_scale_stats[node_key]
+        act_scales_npz[node_key] = np.float32(stat['median'])
+
+        # Print a blank separator between different encoder layers
+        layer_id = node_key.split('.')[3] if node_key.startswith('bert.encoder.layers.') else None
+        if layer_id != prev_layer:
+            if prev_layer is not None:
+                print()
+            prev_layer = layer_id
+
+        print(f"  {node_key:<68} "
+              f"{stat['median']:>12.6e} "
+              f"{stat['mean']:>12.6e} "
+              f"{stat['p95']:>12.6e} "
+              f"{stat['min']:>12.6e} "
+              f"{stat['max']:>12.6e}  "
+              f"{stat['samples']}")
+
     act_scales_file = file_path.replace('.npz', '_activation_scales.npz')
-    act_scales_dict = {}
-    for name, stat in scale_stats.items():
-        if 'median' in stat and (
-            'output_scale' in name or
-            'residual' in name
-        ):
-            act_scales_dict[name] = np.float32(stat['median'])
-            print(f"  act_scale  {name}: {stat['median']:.6e}")
-    np.savez_compressed(act_scales_file, **act_scales_dict)
-    print(f"\n  Saved {len(act_scales_dict)} activation scales to: {act_scales_file}")
+    np.savez_compressed(act_scales_file, **act_scales_npz)
+    print(f"\n  Saved {len(act_scales_npz)} activation scales → {act_scales_file}")
 
-    # Save scale metadata JSON
-    metadata_file = file_path.replace('.npz', '_scale_metadata.json')
-    with open(metadata_file, 'w') as f:
-        json.dump(scale_stats, f, indent=2)
-    print(f"  Saved scale metadata to:    {metadata_file}")
-
-    # GELU input range analysis (hardware design guidance)
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 4 — GELU INPUT RANGE ANALYSIS
+    # ══════════════════════════════════════════════════════════════════════════
     if 'gelu_input_range' in scale_stats:
         g = scale_stats['gelu_input_range']
         print("\n" + "=" * 70)
-        print("GELU INPUT RANGE ANALYSIS (CRITICAL FOR HARDWARE!)")
+        print("SECTION 4 — GELU INPUT RANGE ANALYSIS  (Q10.22 format check)")
         print("=" * 70)
-        print(f"\n  Measured from {g['samples']} batches:")
-        print(f"  Overall range:       [{g['overall_min']:.4f}, {g['overall_max']:.4f}]")
-        print(f"  Typical range (90%): [{g['typical_min_p05']:.4f}, {g['typical_max_p95']:.4f}]")
-        print(f"  Median range:        [{g['median_min']:.4f}, {g['median_max']:.4f}]")
+        print(f"  Measured from {g['samples']} calibration batches")
+        print(f"  Overall range:          [{g['overall_min']:.6f},  {g['overall_max']:.6f}]")
+        print(f"  Typical range (p05–p95):[{g['typical_min_p05']:.6f},  {g['typical_max_p95']:.6f}]")
+        print(f"  Median range:           [{g['median_min']:.6f},  {g['median_max']:.6f}]")
+        print(f"  Mean of means:          {g['mean_of_means']:.6f}")
+        print(f"  Mean of stds:           {g['mean_of_stds']:.6f}")
 
         max_abs   = max(abs(g['overall_min']), abs(g['overall_max']))
         int_bits  = int(np.ceil(np.log2(max_abs + 1))) + 1
-        frac_bits = 16 - int_bits
-        print(f"\n  Recommended fixed-point format: Q{int_bits}.{frac_bits}")
-        print(f"  Range:     [{-2**(int_bits-1):.1f}, {2**(int_bits-1)-1:.1f}]")
-        print(f"  Precision: {2**-frac_bits:.6f}")
+        frac_bits = 32 - int_bits
+        print(f"\n  Actual Q10.22 format covers: [{-2**9:.1f}, {2**9 - 1:.1f}]  "
+              f"precision = {2**-22:.8f}")
+        print(f"  Data fits in Q{int_bits}.{frac_bits}  "
+              f"(range [{-2**(int_bits-1):.1f}, {2**(int_bits-1)-1:.1f}],  "
+              f"precision {2**-frac_bits:.8f})")
 
         range_span = g['typical_max_p95'] - g['typical_min_p05']
-        print(f"\n  PLA segments estimate:")
+        print(f"\n  PLA segment size over typical range ({range_span:.4f}):")
         for n in [8, 16, 32]:
-            print(f"    {n:2d} segments: {range_span/n:.4f} per segment "
-                  f"({n*4} bytes for slopes/intercepts)")
-        print("=" * 70)
+            print(f"    {n:2d} segments → {range_span/n:.6f} per segment  "
+                  f"({n*4} bytes for K/B LUT)")
 
-    # Extraction summary
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — FULL METADATA JSON  (all statistics for every node)
+    # ══════════════════════════════════════════════════════════════════════════
+    metadata_file = file_path.replace('.npz', '_scale_metadata.json')
+    with open(metadata_file, 'w') as f:
+        json.dump(scale_stats, f, indent=2)
+    print(f"\n  Saved full scale metadata (all nodes, all stats) → {metadata_file}")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # FINAL SUMMARY
+    # ══════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 70)
     print("EXTRACTION SUMMARY")
     print("=" * 70)
-    total_mb = sum(v.nbytes for v in quantized_state_dict.values()) / (1024 ** 2)
-    n_input_scales  = sum(1 for k in quantized_state_dict if '.input_scale' in k)
-    n_act_scales    = len(act_scales_dict)
-    n_int32_bias    = sum(1 for k, v in quantized_state_dict.items()
-                          if 'bias' in k and hasattr(v, 'dtype')
-                          and v.dtype == np.int32)
-    print(f"  Total size:                 {total_mb:.2f} MB")
-    print(f"  Layers with input scales:   {n_input_scales}")
-    print(f"  Activation scales saved:    {n_act_scales}")
-    print(f"  INT32 biases:               {n_int32_bias}")
+    total_mb      = sum(v.nbytes for v in quantized_state_dict.values()) / (1024 ** 2)
+    n_int8_weights = sum(1 for k, v in quantized_state_dict.items()
+                         if 'weight' in k and not k.endswith('.scale')
+                         and hasattr(v, 'dtype') and v.dtype == np.int8)
+    n_int8_bias    = sum(1 for k, v in quantized_state_dict.items()
+                         if 'bias' in k and not k.endswith('.scale')
+                         and hasattr(v, 'dtype') and v.dtype == np.int8)
+    n_input_scales = len(input_scales_npz)
+    n_act_scales   = len(act_scales_npz)
+    print(f"  INT8 weight tensors saved:  {n_int8_weights}")
+    print(f"  INT8 bias tensors saved:    {n_int8_bias}")
+    print(f"  Layer input scales saved:   {n_input_scales}   → {input_scales_file}")
+    print(f"  Activation scales saved:    {n_act_scales}   → {act_scales_file}")
+    print(f"  Full metadata (JSON):                         → {metadata_file}")
+    print(f"  Total weight file size:     {total_mb:.2f} MB")
     print("=" * 70)
 
 
@@ -839,13 +1069,15 @@ def main():
 
     print(f"\nBERT-base Hardware-Aware Model  "
           f"({sum(p.numel() for p in model.parameters()):,} parameters)")
-    print("Quantization: PER-TENSOR (hardware-accurate)\n")
+    print("Quantization: PER-TENSOR (hardware-accurate)")
+    print("Biases:       INT8  (bias_scale = input_scale × weight_scale)")
+    print("GCU pipeline: EU1 → DU → EU2  |  input Q10.22  →  output Q48.16\n")
 
     optimizer            = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
     num_training_steps   = NUM_EPOCHS * len(train_dataloader)
     lr_scheduler         = get_linear_schedule_with_warmup(
         optimizer,
-        num_warmup_steps  = int(0.1 * num_training_steps),
+        num_warmup_steps   = int(0.1 * num_training_steps),
         num_training_steps = num_training_steps,
     )
 
@@ -890,7 +1122,7 @@ def main():
 
     # ── Save weights + scales ─────────────────────────────────────────────────
     print("\nTraining complete. Extracting weights and scales...")
-    output_weights_file = '/kaggle/working/weights_with_scales.npz'  
+    output_weights_file = '/kaggle/working/weights_with_scales.npz'
     extract_and_save_quantized_weights(model, output_weights_file)
 
 
